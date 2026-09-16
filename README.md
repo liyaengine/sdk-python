@@ -2,7 +2,7 @@
 
 Official Python client for the [Liya Engine](https://liyaengine.ai) public API.
 
-> **Status: early access.** This SDK currently covers the Collections resource. More resources (Domains, Run, Agents, Workflows, Evals) ship incrementally — see [Roadmap](#roadmap).
+> **Status: early access.** This SDK currently covers Collections and Agents. More resources (Domains, Run, Workflows, Guardrail Policies, Evals) ship incrementally — see [Roadmap](#roadmap).
 
 ## Install
 
@@ -34,6 +34,23 @@ with LiyaEngine(api_key="liya_...") as client:
 ```
 
 Get an API key from your [Liya Engine dashboard](https://app.liyaengine.ai) under Settings → API Keys.
+
+## Agents
+
+```python
+agent = client.agents.create(
+    agent_key="support-triage",
+    name="Support Triage",
+    goal="Triage incoming support tickets and route them to the right team.",
+)
+
+# Agents are created in draft status — deploy to activate for execution.
+client.agents.deploy(agent.agent_key)
+
+result = client.agents.run(agent.agent_key, input={"message": "My order hasn't arrived yet."})
+
+history = client.agents.list_runs(agent.agent_key)
+```
 
 ## Error handling
 
@@ -67,10 +84,11 @@ LiyaEngine(
 ## Roadmap
 
 - [x] Collections
+- [x] Agents (full CRUD, deploy, run, run/session history)
 - [ ] Domains (custom domain + intent CRUD)
 - [ ] Run / Run (streaming)
-- [ ] Agents
 - [ ] Workflows
+- [ ] Guardrail Policies
 - [ ] Evaluations
 - [ ] Async client
 
