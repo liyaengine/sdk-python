@@ -2,7 +2,7 @@
 
 Official Python client for the [Liya Engine](https://liyaengine.ai) public API.
 
-> **Status: early access.** This SDK currently covers Collections and Agents. More resources (Domains, Run, Workflows, Guardrail Policies, Evals) ship incrementally — see [Roadmap](#roadmap).
+> **Status: early access.** This SDK currently covers Collections, Agents, and Workflows. More resources (Domains, Run, Guardrail Policies, Evals) ship incrementally — see [Roadmap](#roadmap).
 
 ## Install
 
@@ -52,6 +52,33 @@ result = client.agents.run(agent.agent_key, input={"message": "My order hasn't a
 history = client.agents.list_runs(agent.agent_key)
 ```
 
+## Workflows
+
+```python
+workflow = client.workflows.create(
+    name="Lead Intake",
+    steps=[{"step_type": "trigger", "config": {"trigger_subtype": "webhook"}}],
+)
+
+# Workflows are created in draft status — deploy to publish and make them
+# callable. Deploying a webhook-triggered workflow for the first time mints
+# its webhook secret; capture it immediately, it is never returned again.
+deployed = client.workflows.deploy(workflow.workflow_key)
+webhook_url, webhook_secret = deployed["webhook_url"], deployed["webhook_secret"]
+
+# Roll the secret with a grace window so in-flight senders don't break.
+client.workflows.rotate_webhook_secret(workflow.workflow_key, grace_period_seconds=300)
+
+# Flip a deployed workflow on/off without touching its definition.
+client.workflows.toggle(workflow.workflow_key)
+
+result = client.workflows.run(workflow.workflow_key, input={"email": "ada@example.com"})
+
+history = client.workflows.list_runs(workflow.workflow_key)
+```
+
+> `deploy()` and `rotate_webhook_secret()` return the plaintext webhook secret exactly once. Store it immediately — subsequent reads (`get`, `list`) only ever expose `trigger_config["has_secret"]`.
+
 ## Error handling
 
 Every failed request raises `LiyaEngineAPIError`, carrying the API's `code`, `message`, and HTTP `status`:
@@ -85,9 +112,9 @@ LiyaEngine(
 
 - [x] Collections
 - [x] Agents (full CRUD, deploy, run, run/session history)
+- [x] Workflows (full CRUD, toggle, deploy, webhook secret rotate, run, run history)
 - [ ] Domains (custom domain + intent CRUD)
 - [ ] Run / Run (streaming)
-- [ ] Workflows
 - [ ] Guardrail Policies
 - [ ] Evaluations
 - [ ] Async client

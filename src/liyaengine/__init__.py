@@ -2,6 +2,7 @@ from .client import LiyaEngine
 from .errors import LiyaEngineAPIError, LiyaEngineNetworkError
 from .resources.agents import Agent
 from .resources.collections import Collection
+from .resources.workflows import Workflow
 
 __all__ = [
     "LiyaEngine",
@@ -9,6 +10,7 @@ __all__ = [
     "LiyaEngineNetworkError",
     "Collection",
     "Agent",
+    "Workflow",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

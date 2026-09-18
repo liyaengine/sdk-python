@@ -7,6 +7,7 @@ import httpx
 from ._http import HttpClient
 from .resources.agents import AgentsResource
 from .resources.collections import CollectionsResource
+from .resources.workflows import WorkflowsResource
 
 _DEFAULT_BASE_URL = "https://api.liyaengine.ai"
 
@@ -41,6 +42,7 @@ class LiyaEngine:
         )
         self.collections = CollectionsResource(self._http)
         self.agents = AgentsResource(self._http)
+        self.workflows = WorkflowsResource(self._http)
 
     def close(self) -> None:
         self._http.close()
