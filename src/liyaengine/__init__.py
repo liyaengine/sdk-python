@@ -3,6 +3,7 @@ from .errors import LiyaEngineAPIError, LiyaEngineNetworkError
 from .resources.agents import Agent
 from .resources.collections import Collection
 from .resources.workflows import Workflow
+from .resources.evaluations import EvalDataset, EvalCase, EvalSuite, EvalRun, EvalReview
 
 __all__ = [
     "LiyaEngine",
@@ -11,6 +12,11 @@ __all__ = [
     "Collection",
     "Agent",
     "Workflow",
+    "EvalDataset",
+    "EvalCase",
+    "EvalSuite",
+    "EvalRun",
+    "EvalReview",
 ]
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
