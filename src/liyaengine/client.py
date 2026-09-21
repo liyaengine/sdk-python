@@ -9,6 +9,7 @@ from .resources.agents import AgentsResource
 from .resources.collections import CollectionsResource
 from .resources.workflows import WorkflowsResource
 from .resources.evaluations import EvaluationsResource
+from .resources.domains import DomainsResource, IntentsResource
 
 _DEFAULT_BASE_URL = "https://api.liyaengine.ai"
 
@@ -45,6 +46,8 @@ class LiyaEngine:
         self.agents = AgentsResource(self._http)
         self.workflows = WorkflowsResource(self._http)
         self.evaluations = EvaluationsResource(self._http)
+        self.domains = DomainsResource(self._http)
+        self.intents = IntentsResource(self._http)
 
     def close(self) -> None:
         self._http.close()
