@@ -1,17 +1,34 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Literal, Optional, TypedDict, Union, cast
 from urllib.parse import quote
 
 from .._http import HttpClient
 
 
+class InlinePromptBinding(TypedDict):
+    kind: Literal["inline"]
+    content: str
+
+
+class LibraryVersionPromptBinding(TypedDict):
+    """Pinned to one exact, immutable, content-hashed Prompt Studio version —
+    deliberately rejects mutable aliases like "latest" or "production"."""
+
+    kind: Literal["library_version"]
+    prompt_id: str
+    version_id: str
+    content_hash: str
+
+
+PromptBinding = Union[InlinePromptBinding, LibraryVersionPromptBinding]
+
+
 @dataclass(frozen=True)
 class Intent:
-    """Real columns also include agent_config/execution_config/retrieval_config/
-    cache_config/prompt_binding/guardrail_policy_id — dashboard-only to write today,
-    not on create()/update()'s keyword args below."""
+    """Real column also includes guardrail_policy_id — dashboard-only to write
+    today, not on create()/update()'s keyword args below."""
 
     id: str
     tenant_id: str
@@ -20,9 +37,14 @@ class Intent:
     display_name: str
     description: Optional[str]
     prompt_template: str
+    prompt_binding: Optional[PromptBinding]
     output_schema: Optional[Dict[str, Any]]
     input_schema: Optional[Dict[str, Any]]
     guardrails_config: Optional[Dict[str, Any]]
+    agent_config: Optional[Dict[str, Any]]
+    execution_config: Optional[Dict[str, Any]]
+    retrieval_config: Optional[Dict[str, Any]]
+    cache_config: Optional[Dict[str, Any]]
     is_active: bool
     sort_order: int
     created_at: str
@@ -33,17 +55,40 @@ class Intent:
         return cls(
             id=data["id"], tenant_id=data["tenant_id"], domain_key=data["domain_key"], intent_key=data["intent_key"],
             display_name=data["display_name"], description=data.get("description"),
-            prompt_template=data["prompt_template"], output_schema=data.get("output_schema"),
-            input_schema=data.get("input_schema"), guardrails_config=data.get("guardrails_config"),
+            prompt_template=data["prompt_template"], prompt_binding=data.get("prompt_binding"),
+            output_schema=data.get("output_schema"), input_schema=data.get("input_schema"),
+            guardrails_config=data.get("guardrails_config"), agent_config=data.get("agent_config"),
+            execution_config=data.get("execution_config"), retrieval_config=data.get("retrieval_config"),
+            cache_config=data.get("cache_config"),
             is_active=data["is_active"], sort_order=data["sort_order"],
             created_at=data["created_at"], updated_at=data["updated_at"],
         )
 
 
 @dataclass(frozen=True)
+class IntentVersionSummary:
+    id: str
+    version_number: int
+    changed_fields: List[str]
+    change_type: Literal["create", "update", "restore"]
+    restored_from_version: Optional[int]
+    created_by: Optional[str]
+    actor_name: Optional[str]
+    created_at: str
+
+    @classmethod
+    def _from_dict(cls, data: Dict[str, Any]) -> "IntentVersionSummary":
+        return cls(
+            id=data["id"], version_number=data["version_number"], changed_fields=data["changed_fields"],
+            change_type=data["change_type"], restored_from_version=data.get("restored_from_version"),
+            created_by=data.get("created_by"), actor_name=data.get("actorName"), created_at=data["created_at"],
+        )
+
+
+@dataclass(frozen=True)
 class Domain:
-    """Real columns also include status/guardrail_policy_id/prompt_binding/tools_config/
-    default_top_k/default_similarity_threshold — dashboard-only to write today."""
+    """Real columns also include guardrail_policy_id/tools_config/default_top_k/
+    default_similarity_threshold — dashboard-only to write today."""
 
     id: str
     tenant_id: str
@@ -53,8 +98,10 @@ class Domain:
     icon: str
     color: str
     system_prompt: Optional[str]
+    prompt_binding: Optional[PromptBinding]
     context_enrichment_webhook_url: Optional[str]
     retrieval_scope: Optional[str]
+    status: Literal["draft", "active", "archived"]
     is_active: bool
     created_at: str
     updated_at: str
@@ -69,8 +116,10 @@ class Domain:
             id=data["id"], tenant_id=data["tenant_id"], domain_key=data["domain_key"],
             display_name=data["display_name"], description=data.get("description"),
             icon=data["icon"], color=data["color"], system_prompt=data.get("system_prompt"),
+            prompt_binding=data.get("prompt_binding"),
             context_enrichment_webhook_url=data.get("context_enrichment_webhook_url"),
-            retrieval_scope=data.get("retrieval_scope"), is_active=data["is_active"],
+            retrieval_scope=data.get("retrieval_scope"), status=data.get("status", "active"),
+            is_active=data["is_active"],
             created_at=data["created_at"], updated_at=data["updated_at"],
             intents=[Intent._from_dict(i) for i in intents] if intents is not None else None,
             source_types=data.get("source_types"),
@@ -125,13 +174,38 @@ class IntentCatalogEntry:
         )
 
 
+class DomainIntentVersionsResource:
+    def __init__(self, http: HttpClient) -> None:
+        self._http = http
+
+    def list(self, domain_key: str, intent_key: str) -> List[IntentVersionSummary]:
+        """Newest first, max 50."""
+        data = self._http.get(f"/v1/domains/{quote(domain_key)}/intents/{quote(intent_key)}/versions")
+        return [IntentVersionSummary._from_dict(v) for v in data["versions"]]
+
+    def get(self, domain_key: str, intent_key: str, version_number: int) -> IntentVersionSummary:
+        data = self._http.get(f"/v1/domains/{quote(domain_key)}/intents/{quote(intent_key)}/versions/{version_number}")
+        return IntentVersionSummary._from_dict(data["version"])
+
+    def restore(self, domain_key: str, intent_key: str, version_number: int) -> Intent:
+        """Writes the version's snapshot back onto the live intent. The restore itself is versioned too."""
+        data = self._http.post(f"/v1/domains/{quote(domain_key)}/intents/{quote(intent_key)}/versions/{version_number}/restore", {})
+        return Intent._from_dict(data["intent"])
+
+
 class DomainIntentsResource:
     def __init__(self, http: HttpClient) -> None:
         self._http = http
+        self.versions = DomainIntentVersionsResource(http)
 
     def list(self, domain_key: str) -> List[Intent]:
         data = self._http.get(f"/v1/domains/{quote(domain_key)}/intents")
         return [Intent._from_dict(i) for i in data["intents"]]
+
+    def get(self, domain_key: str, intent_key: str) -> Intent:
+        """No get-single-intent route existed before this — now it does."""
+        data = self._http.get(f"/v1/domains/{quote(domain_key)}/intents/{quote(intent_key)}")
+        return Intent._from_dict(data["intent"])
 
     # /v1/domains/:key/intents predates the snake_case wire convention every
     # other /v1 resource in this SDK uses, and has real external consumers
@@ -140,14 +214,21 @@ class DomainIntentsResource:
     # shape stays consistent with every other resource; changing the wire
     # format itself would break those existing integrations.
     def create(
-        self, domain_key: str, *, intent_key: str, display_name: str, prompt_template: str,
-        description: Optional[str] = None, output_schema: Optional[Dict[str, Any]] = None,
-        input_schema: Optional[Dict[str, Any]] = None, guardrails_config: Optional[Dict[str, Any]] = None,
+        self, domain_key: str, *, intent_key: str, display_name: str, description: str,
+        prompt_template: Optional[str] = None, prompt_binding: Optional[PromptBinding] = None,
+        output_schema: Optional[Dict[str, Any]] = None, input_schema: Optional[Dict[str, Any]] = None,
+        guardrails_config: Optional[Dict[str, Any]] = None, agent_config: Optional[Dict[str, Any]] = None,
+        execution_config: Optional[Dict[str, Any]] = None, retrieval_config: Optional[Dict[str, Any]] = None,
+        cache_config: Optional[Dict[str, Any]] = None,
     ) -> Intent:
-        body: Dict[str, Any] = {"intentKey": intent_key, "displayName": display_name, "promptTemplate": prompt_template}
+        """Either prompt_template or prompt_binding is required — pass prompt_binding
+        to pin the intent to a Prompt Studio library version instead of inline text."""
+        body: Dict[str, Any] = {"intentKey": intent_key, "displayName": display_name, "description": description}
         optional = {
-            "description": description, "outputSchema": output_schema,
-            "inputSchema": input_schema, "guardrailsConfig": guardrails_config,
+            "promptTemplate": prompt_template, "promptBinding": prompt_binding,
+            "outputSchema": output_schema, "inputSchema": input_schema, "guardrailsConfig": guardrails_config,
+            "agentConfig": agent_config, "executionConfig": execution_config,
+            "retrievalConfig": retrieval_config, "cacheConfig": cache_config,
         }
         body.update({k: v for k, v in optional.items() if v is not None})
         data = self._http.post(f"/v1/domains/{quote(domain_key)}/intents", body)
@@ -156,16 +237,24 @@ class DomainIntentsResource:
     def update(
         self, domain_key: str, intent_key: str, *, display_name: Optional[str] = None,
         description: Optional[str] = None, prompt_template: Optional[str] = None,
+        prompt_binding: Optional[PromptBinding] = None,
         output_schema: Optional[Dict[str, Any]] = None, input_schema: Optional[Dict[str, Any]] = None,
-        guardrails_config: Optional[Dict[str, Any]] = None,
+        guardrails_config: Optional[Dict[str, Any]] = None, agent_config: Optional[Dict[str, Any]] = None,
+        execution_config: Optional[Dict[str, Any]] = None, retrieval_config: Optional[Dict[str, Any]] = None,
+        cache_config: Optional[Dict[str, Any]] = None, sort_order: Optional[int] = None,
+        model_override: Optional[str] = None, is_active: Optional[bool] = None,
     ) -> Dict[str, int]:
-        """Returns {"updated": 1}, not the updated Intent — this door has no
-        get-single-intent route to re-fetch from either. Call list() again if
-        you need the fresh object."""
+        """Returns {"updated": 1}, not the updated Intent — call get() again if
+        you need the fresh object. Editing prompt_template without also passing
+        prompt_binding detaches any existing binding on this intent."""
         body: Dict[str, Any] = {}
         optional = {
             "displayName": display_name, "description": description, "promptTemplate": prompt_template,
-            "outputSchema": output_schema, "inputSchema": input_schema, "guardrailsConfig": guardrails_config,
+            "promptBinding": prompt_binding, "outputSchema": output_schema, "inputSchema": input_schema,
+            "guardrailsConfig": guardrails_config, "agentConfig": agent_config,
+            "executionConfig": execution_config, "retrievalConfig": retrieval_config,
+            "cacheConfig": cache_config, "sortOrder": sort_order, "modelOverride": model_override,
+            "isActive": is_active,
         }
         body.update({k: v for k, v in optional.items() if v is not None})
         return cast(Dict[str, int], self._http.patch(f"/v1/domains/{quote(domain_key)}/intents/{quote(intent_key)}", body))
@@ -197,9 +286,10 @@ class DomainSourcesResource:
 class DomainsResource:
     """Custom domains — the top-level container tenants configure first (system
     prompt, retrieval scope, then intents and knowledge underneath). Mirrors the
-    full /v1/domains surface. Basic CRUD only today — agent/execution/retrieval/
-    cache config, guardrail policy attachment, and versioning are still
-    dashboard-only (no /v1 route yet)."""
+    full /v1/domains surface, including intent versioning (intents.versions) and
+    the agent/execution/retrieval/cache config blobs. Guardrail policy attachment
+    is still dashboard-only (no /v1 route for that yet — a separate resource
+    entirely)."""
 
     def __init__(self, http: HttpClient) -> None:
         self._http = http
@@ -223,12 +313,15 @@ class DomainsResource:
     def create(
         self, *, domain_key: str, display_name: str, description: Optional[str] = None,
         icon: Optional[str] = None, color: Optional[str] = None, system_prompt: Optional[str] = None,
+        prompt_binding: Optional[PromptBinding] = None,
         context_enrichment_webhook_url: Optional[str] = None,
+        status: Optional[Literal["draft", "active", "archived"]] = None,
     ) -> Domain:
         body: Dict[str, Any] = {"domainKey": domain_key, "displayName": display_name}
         optional = {
             "description": description, "icon": icon, "color": color, "systemPrompt": system_prompt,
-            "contextEnrichmentWebhookUrl": context_enrichment_webhook_url,
+            "promptBinding": prompt_binding,
+            "contextEnrichmentWebhookUrl": context_enrichment_webhook_url, "status": status,
         }
         body.update({k: v for k, v in optional.items() if v is not None})
         data = self._http.post("/v1/domains", body)
@@ -237,14 +330,18 @@ class DomainsResource:
     def update(
         self, domain_key: str, *, display_name: Optional[str] = None, description: Optional[str] = None,
         icon: Optional[str] = None, color: Optional[str] = None, system_prompt: Optional[str] = None,
+        prompt_binding: Optional[PromptBinding] = None,
         retrieval_scope: Optional[str] = None, context_enrichment_webhook_url: Optional[str] = None,
+        status: Optional[Literal["draft", "active", "archived"]] = None,
     ) -> Dict[str, int]:
-        """Returns {"updated": 1}, not the updated Domain — call get() again for the fresh object."""
+        """Returns {"updated": 1}, not the updated Domain — call get() again for
+        the fresh object. Editing system_prompt without also passing
+        prompt_binding detaches any existing binding on this domain."""
         body: Dict[str, Any] = {}
         optional = {
             "displayName": display_name, "description": description, "icon": icon, "color": color,
-            "systemPrompt": system_prompt, "retrievalScope": retrieval_scope,
-            "contextEnrichmentWebhookUrl": context_enrichment_webhook_url,
+            "systemPrompt": system_prompt, "promptBinding": prompt_binding, "retrievalScope": retrieval_scope,
+            "contextEnrichmentWebhookUrl": context_enrichment_webhook_url, "status": status,
         }
         body.update({k: v for k, v in optional.items() if v is not None})
         return cast(Dict[str, int], self._http.patch(f"/v1/domains/{quote(domain_key)}", body))

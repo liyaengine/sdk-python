@@ -15,8 +15,10 @@ FIXTURE_DOMAIN = {
     "icon": "◆",
     "color": "#6366f1",
     "system_prompt": None,
+    "prompt_binding": None,
     "context_enrichment_webhook_url": None,
     "retrieval_scope": None,
+    "status": "active",
     "is_active": True,
     "created_at": "2026-01-01T00:00:00.000Z",
     "updated_at": "2026-01-01T00:00:00.000Z",
@@ -30,13 +32,29 @@ FIXTURE_INTENT = {
     "display_name": "Refund Status",
     "description": "Answer refund status questions.",
     "prompt_template": "You are a billing assistant...",
+    "prompt_binding": None,
     "output_schema": None,
     "input_schema": None,
     "guardrails_config": None,
+    "agent_config": None,
+    "execution_config": None,
+    "retrieval_config": None,
+    "cache_config": None,
     "is_active": True,
     "sort_order": 0,
     "created_at": "2026-01-01T00:00:00.000Z",
     "updated_at": "2026-01-01T00:00:00.000Z",
+}
+
+FIXTURE_VERSION = {
+    "id": "ver_1",
+    "version_number": 1,
+    "changed_fields": ["prompt_template"],
+    "change_type": "create",
+    "restored_from_version": None,
+    "created_by": None,
+    "actorName": None,
+    "created_at": "2026-01-01T00:00:00.000Z",
 }
 
 
@@ -57,7 +75,7 @@ def test_domain_crud(client):
     respx.post(f"{BASE_URL}/v1/domains").mock(
         return_value=httpx.Response(201, json={"success": True, "data": {"domain": FIXTURE_DOMAIN}})
     )
-    created = client.domains.create(domain_key="billing", display_name="Billing")
+    created = client.domains.create(domain_key="billing", display_name="Billing", status="draft")
     assert created.domain_key == "billing"
 
     respx.get(f"{BASE_URL}/v1/domains/billing").mock(
@@ -70,7 +88,7 @@ def test_domain_crud(client):
     respx.patch(f"{BASE_URL}/v1/domains/billing").mock(
         return_value=httpx.Response(200, json={"success": True, "data": {"updated": 1}})
     )
-    updated = client.domains.update("billing", display_name="Billing Support")
+    updated = client.domains.update("billing", display_name="Billing Support", status="active")
     assert updated["updated"] == 1
 
     respx.delete(f"{BASE_URL}/v1/domains/billing").mock(
@@ -106,24 +124,69 @@ def test_domain_intents_crud(client):
     intents = client.domains.intents.list("billing")
     assert len(intents) == 1
 
+    respx.get(f"{BASE_URL}/v1/domains/billing/intents/refund-status").mock(
+        return_value=httpx.Response(200, json={"success": True, "data": {"intent": FIXTURE_INTENT}})
+    )
+    fetched = client.domains.intents.get("billing", "refund-status")
+    assert fetched.intent_key == "refund-status"
+
     respx.post(f"{BASE_URL}/v1/domains/billing/intents").mock(
         return_value=httpx.Response(201, json={"success": True, "data": {"intent": FIXTURE_INTENT}})
     )
     created = client.domains.intents.create(
-        "billing", intent_key="refund-status", display_name="Refund Status", prompt_template="You are a billing assistant...",
+        "billing", intent_key="refund-status", display_name="Refund Status",
+        description="Answer refund status questions.", prompt_template="You are a billing assistant...",
     )
     assert created.intent_key == "refund-status"
 
     respx.patch(f"{BASE_URL}/v1/domains/billing/intents/refund-status").mock(
         return_value=httpx.Response(200, json={"success": True, "data": {"updated": 1}})
     )
-    updated = client.domains.intents.update("billing", "refund-status", display_name="Refund Status v2")
+    updated = client.domains.intents.update(
+        "billing", "refund-status", display_name="Refund Status v2",
+        agent_config={"enabled": True, "max_steps": 3}, sort_order=2,
+    )
     assert updated["updated"] == 1
 
     respx.delete(f"{BASE_URL}/v1/domains/billing/intents/refund-status").mock(
         return_value=httpx.Response(200, json={"success": True, "data": {"deleted": "refund-status"}})
     )
     client.domains.intents.delete("billing", "refund-status")
+
+
+@respx.mock
+def test_domain_intent_create_with_prompt_binding(client):
+    respx.post(f"{BASE_URL}/v1/domains/billing/intents").mock(
+        return_value=httpx.Response(201, json={"success": True, "data": {"intent": FIXTURE_INTENT}})
+    )
+    created = client.domains.intents.create(
+        "billing", intent_key="refund-status", display_name="Refund Status",
+        description="Answer refund status questions.",
+        prompt_binding={"kind": "library_version", "prompt_id": "prompt_1", "version_id": "version_2", "content_hash": "sha256:" + "a" * 64},
+    )
+    assert created.intent_key == "refund-status"
+
+
+@respx.mock
+def test_domain_intent_versions(client):
+    respx.get(f"{BASE_URL}/v1/domains/billing/intents/refund-status/versions").mock(
+        return_value=httpx.Response(200, json={"success": True, "data": {"versions": [FIXTURE_VERSION]}})
+    )
+    versions = client.domains.intents.versions.list("billing", "refund-status")
+    assert len(versions) == 1
+    assert versions[0].change_type == "create"
+
+    respx.get(f"{BASE_URL}/v1/domains/billing/intents/refund-status/versions/1").mock(
+        return_value=httpx.Response(200, json={"success": True, "data": {"version": FIXTURE_VERSION}})
+    )
+    version = client.domains.intents.versions.get("billing", "refund-status", 1)
+    assert version.version_number == 1
+
+    respx.post(f"{BASE_URL}/v1/domains/billing/intents/refund-status/versions/1/restore").mock(
+        return_value=httpx.Response(200, json={"success": True, "data": {"intent": FIXTURE_INTENT}})
+    )
+    restored = client.domains.intents.versions.restore("billing", "refund-status", 1)
+    assert restored.intent_key == "refund-status"
 
 
 @respx.mock

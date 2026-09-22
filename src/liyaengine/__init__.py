@@ -4,7 +4,7 @@ from .resources.agents import Agent
 from .resources.collections import Collection
 from .resources.workflows import Workflow
 from .resources.evaluations import EvalDataset, EvalCase, EvalSuite, EvalRun, EvalReview
-from .resources.domains import Domain, Intent, DomainSource
+from .resources.domains import Domain, Intent, DomainSource, IntentVersionSummary
 
 __all__ = [
     "LiyaEngine",
@@ -21,6 +21,7 @@ __all__ = [
     "Domain",
     "Intent",
     "DomainSource",
+    "IntentVersionSummary",
 ]
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"

@@ -44,14 +44,23 @@ domain = client.domains.create(domain_key="billing", display_name="Billing")
 
 intent = client.domains.intents.create(
     "billing", intent_key="refund-status", display_name="Refund Status",
+    description="Answer refund-status questions.",
     prompt_template="You are a billing assistant. Question: {{message}}",
+    # Agent mode, per-intent execution/retrieval/cache overrides — optional:
+    agent_config={"enabled": True, "max_steps": 3},
 )
+
+one_intent = client.domains.intents.get("billing", "refund-status")
+
+# Every update creates a restorable version snapshot automatically.
+versions = client.domains.intents.versions.list("billing", "refund-status")
+client.domains.intents.versions.restore("billing", "refund-status", versions[0].version_number)
 
 # Direct retrieval — no LLM call, useful for testing knowledge scoping.
 result = client.domains.query("billing", query="refund timeline")
 ```
 
-> Basic CRUD only today — richer config (agent mode, retrieval tuning, guardrail policy attachment, prompt versioning) is still dashboard-only. `domains.update()`/`domains.intents.update()` return `{"updated": 1}`, not the updated object — call `get()`/`list()` again for the fresh state. There's also no get-one-intent route; use `intents.list(domain_key)`.
+> `domains.update()`/`domains.intents.update()` return `{"updated": 1}`, not the updated object — call `get()`/`list()` again for the fresh state. Guardrail policy attachment is still dashboard-only (a separate resource with no `/v1` route yet). To bind an intent's prompt to a Prompt Studio library version instead of inline text, pass `prompt_binding={"kind": "library_version", "prompt_id": ..., "version_id": ..., "content_hash": ...}` in place of `prompt_template` — editing `prompt_template` directly afterward without also passing `prompt_binding` silently detaches the binding.
 
 ## Collections
 
@@ -173,13 +182,12 @@ LiyaEngine(
 
 ## Roadmap
 
-- [x] Domains & Intents (basic CRUD, direct retrieval query, narrow document upload — richer config still dashboard-only)
+- [x] Domains & Intents (full CRUD parity with the dashboard, prompt binding, agent/execution/retrieval/cache config, versioning, direct retrieval query, narrow document upload — guardrail policy attachment still dashboard-only)
 - [x] Collections
 - [x] Agents (full CRUD, deploy, run, run/session history)
 - [x] Workflows (full CRUD, toggle, deploy, webhook secret rotate, run, run history)
 - [x] Evaluations (Datasets/Cases/Suites/Runs/Reviews CRUD, suite execution, cancel/resume, statistical + pairwise compare, standalone scoring)
 - [ ] Full KBaaS (document list/get/delete, async ingestion jobs + URL crawl, collection↔document/domain attach-detach, analytics)
-- [ ] Domain/Intent config parity (agent/execution/retrieval/cache config, guardrail policy attachment, versioning)
 - [ ] Run / Run (streaming)
 - [ ] Guardrail Policies
 - [ ] Prompt Studio (holding until the feature itself is committed/merged upstream)
