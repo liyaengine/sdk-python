@@ -70,9 +70,63 @@ client.collections.get(id)
 client.collections.create(slug=..., label=..., domain_keys=[...])
 client.collections.update(id, label=..., tags=[...], visibility=...)
 client.collections.delete(id)
+
+# Reference documents into a collection — never copies them, never touches embeddings.
+client.collections.documents.attach(collection_id, document_id)
+client.collections.documents.list(collection_id)  # returns CollectionDocumentSummary, a narrower shape than Document — see below
+client.collections.documents.detach(collection_id, document_id)
+
+# Scope a collection's knowledge to a domain.
+client.collections.domains.attach(collection_id, "legal-ops")
+client.collections.domains.detach(collection_id, "legal-ops")
+
+# Live aggregation — no rollup table, always reflects current state.
+stats = client.collections.analytics(collection_id)
+
+# What references this collection — domains, intents, agents (indirect via
+# domain). "workflows" is always None: no workflow-to-collection link exists.
+refs = client.collections.connections(collection_id)
 ```
 
-Full field reference: [Collections API](/docs/api-reference/collections). Document ingestion beyond a quick file drop (`domains.upload_document()`) is still dashboard-only.
+Full field reference: [Collections API](/docs/api-reference/collections).
+
+## Documents
+
+The tenant-wide knowledge pool collections reference (a document can belong to zero, one, or many collections — attaching never copies it or touches its embeddings).
+
+```python
+client.documents.list()
+doc = client.documents.get(id)  # includes the full chunk_list
+client.documents.delete(id)
+
+# Synchronous — blocks until extraction/chunking/embedding finishes. If
+# collection_ids names exactly one collection, that collection's own
+# chunking/embedding defaults pre-fill the upload.
+uploaded = client.documents.upload(
+    file_base64="...",
+    file_name="refund-policy.pdf",
+    category="policy",
+    collection_ids=[collection_id],
+)
+
+# Push a URL or inline content — upserts by a deterministic source_id.
+client.documents.push(url="https://example.com/faq", title="FAQ")
+```
+
+> Unlike `list()`/`get()`, `upload()`'s response has no `uploaded_by` — a real, pre-existing API asymmetry, not an SDK gap. Call `get(id)` afterward if you need it. Similarly, `collections.documents.list()` returns `CollectionDocumentSummary` (`id`/`name`/`chunks`/`size_kb`/`embedding_model`/`uploaded_at` only) rather than a full `Document` — no `category`, `uploaded_by`, or `collections` field; call `documents.get(id)` for the complete record.
+
+For large files or a multi-page crawl, use the async job queue instead — it returns immediately and you poll for completion:
+
+```python
+job = client.documents.jobs.create_url_job(url="https://example.com", depth=2)
+# ...or: client.documents.jobs.create_file_job(file_base64=..., file_name=...)
+
+status = client.documents.jobs.get(job["jobId"])  # pending | running | completed | failed | cancelled
+client.documents.jobs.list(status="running")
+client.documents.jobs.cancel(job["jobId"])
+```
+
+> Cancellation is cooperative (checked between page fetches / chunk embeds), not instant, and there is no crash-recovery sweep — if the process running a job restarts mid-run, the job is left "running" indefinitely rather than auto-retried. Poll `get(job_id)` for terminal status; don't assume `cancel()` stops it immediately.
 
 ## Agents
 
@@ -187,7 +241,8 @@ LiyaEngine(
 - [x] Agents (full CRUD, deploy, run, run/session history)
 - [x] Workflows (full CRUD, toggle, deploy, webhook secret rotate, run, run history)
 - [x] Evaluations (Datasets/Cases/Suites/Runs/Reviews CRUD, suite execution, cancel/resume, statistical + pairwise compare, standalone scoring)
-- [ ] Full KBaaS (document list/get/delete, async ingestion jobs + URL crawl, collection↔document/domain attach-detach, analytics)
+- [x] Full KBaaS (document list/get/delete/upload/push, async ingestion jobs + URL crawl, collection↔document/domain attach-detach, analytics/connections)
+- [ ] Flagged-chunk review
 - [ ] Run / Run (streaming)
 - [ ] Guardrail Policies
 - [ ] Prompt Studio (holding until the feature itself is committed/merged upstream)

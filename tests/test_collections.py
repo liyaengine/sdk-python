@@ -112,3 +112,89 @@ def test_delete_does_not_raise(client):
         return_value=httpx.Response(200, json={"success": True})
     )
     client.collections.delete("col_123")  # no exception = pass
+
+
+@respx.mock
+def test_domains_attach_and_detach(client):
+    respx.post(f"{BASE_URL}/v1/collections/col_123/domains/legal-ops").mock(
+        return_value=httpx.Response(200, json={"success": True})
+    )
+    respx.delete(f"{BASE_URL}/v1/collections/col_123/domains/legal-ops").mock(
+        return_value=httpx.Response(200, json={"success": True})
+    )
+    client.collections.domains.attach("col_123", "legal-ops")
+    client.collections.domains.detach("col_123", "legal-ops")
+
+
+@respx.mock
+def test_documents_list_attach_detach(client):
+    # Real backend shape — no category/uploadedBy/collections, see
+    # CollectionDocumentSummary's docstring.
+    fixture_document_summary = {
+        "id": "doc_123",
+        "name": "faq.txt",
+        "chunks": 3,
+        "sizeKb": 2,
+        "embeddingModel": "text-embedding-3-small",
+        "uploadedAt": "2026-01-01T00:00:00.000Z",
+    }
+    respx.get(f"{BASE_URL}/v1/collections/col_123/documents").mock(
+        return_value=httpx.Response(200, json={"success": True, "data": {"documents": [fixture_document_summary], "total": 1}})
+    )
+    respx.post(f"{BASE_URL}/v1/collections/col_123/documents/doc_123").mock(
+        return_value=httpx.Response(200, json={"success": True})
+    )
+    respx.delete(f"{BASE_URL}/v1/collections/col_123/documents/doc_123").mock(
+        return_value=httpx.Response(200, json={"success": True})
+    )
+    documents = client.collections.documents.list("col_123")
+    assert len(documents) == 1
+    assert documents[0].id == "doc_123"
+    client.collections.documents.attach("col_123", "doc_123")
+    client.collections.documents.detach("col_123", "doc_123")
+
+
+@respx.mock
+def test_analytics_returns_live_aggregated_stats(client):
+    respx.get(f"{BASE_URL}/v1/collections/col_123/analytics").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "success": True,
+                "data": {
+                    "sources": 4,
+                    "documents": 4,
+                    "chunks": 42,
+                    "storage_kb": 128,
+                    "embedding_model": "text-embedding-3-small",
+                    "indexed": True,
+                    "last_synced_at": "2026-01-01T00:00:00.000Z",
+                },
+            },
+        )
+    )
+    analytics = client.collections.analytics("col_123")
+    assert analytics["sources"] == 4
+    assert analytics["indexed"] is True
+
+
+@respx.mock
+def test_connections_returns_domains_intents_agents_and_null_workflows(client):
+    respx.get(f"{BASE_URL}/v1/collections/col_123/connections").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "success": True,
+                "data": {
+                    "domains": [{"domain_key": "legal-ops", "display_name": "Legal Ops"}],
+                    "intents": [{"intent_key": "review-contract", "domain_key": "legal-ops", "display_name": "Review Contract"}],
+                    "agents": [{"id": "agent_1", "name": "Contract Bot", "via": "legal-ops"}],
+                    "workflows": None,
+                },
+            },
+        )
+    )
+    connections = client.collections.connections("col_123")
+    assert connections["domains"] == [{"domain_key": "legal-ops", "display_name": "Legal Ops"}]
+    assert len(connections["agents"]) == 1
+    assert connections["workflows"] is None

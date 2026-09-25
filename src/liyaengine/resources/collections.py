@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
+from urllib.parse import quote
 
 from .._http import HttpClient
 
@@ -43,6 +44,62 @@ class Collection:
         )
 
 
+class CollectionDomainsResource:
+    def __init__(self, http: HttpClient) -> None:
+        self._http = http
+
+    def attach(self, collection_id: str, domain_key: str) -> None:
+        self._http.post(f"/v1/collections/{quote(collection_id)}/domains/{quote(domain_key)}")
+
+    def detach(self, collection_id: str, domain_key: str) -> None:
+        """Detach only — never deletes the collection, even if this was its last attachment. Idempotent."""
+        self._http.delete(f"/v1/collections/{quote(collection_id)}/domains/{quote(domain_key)}")
+
+
+@dataclass(frozen=True)
+class CollectionDocumentSummary:
+    """The shape GET /v1/collections/{id}/documents actually returns — a
+    real, pre-existing backend asymmetry, not the full Document type. No
+    category, uploaded_by, or collections field; confirmed against
+    collectionAttachmentService.ts's listCollectionDocuments().
+    """
+
+    id: str
+    name: str
+    chunks: int
+    size_kb: int
+    embedding_model: Optional[str]
+    uploaded_at: str
+
+    @classmethod
+    def _from_dict(cls, data: Dict[str, Any]) -> "CollectionDocumentSummary":
+        return cls(
+            id=data["id"],
+            name=data["name"],
+            chunks=data["chunks"],
+            size_kb=data["sizeKb"],
+            embedding_model=data.get("embeddingModel"),
+            uploaded_at=data["uploadedAt"],
+        )
+
+
+class CollectionDocumentsResource:
+    def __init__(self, http: HttpClient) -> None:
+        self._http = http
+
+    def list(self, collection_id: str) -> List[CollectionDocumentSummary]:
+        data = self._http.get(f"/v1/collections/{quote(collection_id)}/documents")
+        return [CollectionDocumentSummary._from_dict(d) for d in data["documents"]]
+
+    def attach(self, collection_id: str, document_id: str) -> None:
+        """Reference only — a collection never owns/copies a document; embeddings are never touched."""
+        self._http.post(f"/v1/collections/{quote(collection_id)}/documents/{quote(document_id)}")
+
+    def detach(self, collection_id: str, document_id: str) -> None:
+        """Detach only; the document itself and its embeddings are untouched. Idempotent."""
+        self._http.delete(f"/v1/collections/{quote(collection_id)}/documents/{quote(document_id)}")
+
+
 class CollectionsResource:
     """Tenant-wide knowledge collections — organize documents, scope
     retrieval, attach to one or many domains. Mirrors GET/POST
@@ -52,6 +109,8 @@ class CollectionsResource:
 
     def __init__(self, http: HttpClient) -> None:
         self._http = http
+        self.domains = CollectionDomainsResource(http)
+        self.documents = CollectionDocumentsResource(http)
 
     def list(self) -> List[Collection]:
         data = self._http.get("/v1/collections")
@@ -127,3 +186,14 @@ class CollectionsResource:
 
     def delete(self, id: str) -> None:
         self._http.delete(f"/v1/collections/{id}")
+
+    def analytics(self, id: str) -> Dict[str, Any]:
+        """On-the-fly aggregation — no dedicated rollup table, so this reflects live state exactly."""
+        return cast(Dict[str, Any], self._http.get(f"/v1/collections/{quote(id)}/analytics"))
+
+    def connections(self, id: str) -> Dict[str, Any]:
+        """What references this collection — domains, intents, agents (indirect
+        via domain), and workflows (always None — no workflow-to-collection
+        link, direct or indirect, exists in the schema; a real answer, not a stub).
+        """
+        return cast(Dict[str, Any], self._http.get(f"/v1/collections/{quote(id)}/connections"))
