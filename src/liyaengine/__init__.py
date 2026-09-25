@@ -6,6 +6,7 @@ from .resources.workflows import Workflow
 from .resources.evaluations import EvalDataset, EvalCase, EvalSuite, EvalRun, EvalReview
 from .resources.domains import Domain, Intent, DomainSource, IntentVersionSummary
 from .resources.documents import Document, DocumentChunk, IngestionJob
+from .resources.run import RunIntentResult, RunStreamEvent, RunTokenEvent, RunDoneEvent, RunErrorEvent
 
 __all__ = [
     "LiyaEngine",
@@ -27,6 +28,11 @@ __all__ = [
     "Document",
     "DocumentChunk",
     "IngestionJob",
+    "RunIntentResult",
+    "RunStreamEvent",
+    "RunTokenEvent",
+    "RunDoneEvent",
+    "RunErrorEvent",
 ]
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"

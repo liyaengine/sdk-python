@@ -62,6 +62,36 @@ result = client.domains.query("billing", query="refund timeline")
 
 > `domains.update()`/`domains.intents.update()` return `{"updated": 1}`, not the updated object — call `get()`/`list()` again for the fresh state. Guardrail policy attachment is still dashboard-only (a separate resource with no `/v1` route yet). To bind an intent's prompt to a Prompt Studio library version instead of inline text, pass `prompt_binding={"kind": "library_version", "prompt_id": ..., "version_id": ..., "content_hash": ...}` in place of `prompt_template` — editing `prompt_template` directly afterward without also passing `prompt_binding` silently detaches the binding.
 
+## Run
+
+The primary way to actually invoke an intent — built-in pack or custom domain — and get a real, LLM-generated response back. `agents.run()` and a domain's public `/v1/{domain}/{intent}` route both reach this same endpoint under the hood; call it directly when you don't need an Agent's multi-turn orchestration on top.
+
+```python
+result = client.intents.run(
+    domain="billing",
+    intent="refund-status",
+    message="How long do refunds take?",
+)
+
+print(result.data)      # shape depends on domain — see docstring
+print(result.metadata)  # {"model_used": ..., "tokens_used": ..., "cost_usd": ..., "latency_ms": ..., "cached": ..., ...}
+print(result.usage)     # {"requests_remaining": ..., "tokens_remaining": ..., ...}
+```
+
+Or stream it token by token:
+
+```python
+for event in client.intents.stream(domain="billing", intent="refund-status", message="How long do refunds take?"):
+    if event["type"] == "token":
+        print(event["delta"], end="", flush=True)
+    if event["type"] == "done":
+        print("\n", event["session_id"], event["cost_usd"])
+    if event["type"] == "error":
+        raise RuntimeError(event["message"])
+```
+
+> **Streaming is built-in-packs only** (`chat`, `hiring`, `fintech`, `healthcare`, `ehs`, `compliance`) — a custom-domain intent raises a `LiyaEngineAPIError` (`STREAMING_NOT_SUPPORTED`) immediately, before the stream opens; use `run()` instead for those. Once a stream *has* opened, every other failure (quota exceeded, provider error) arrives as an in-band `{"type": "error"}` event, not a raised error — always check `event["type"]` in your loop, not just try/except. Neither method defaults `domain` sensibly if you omit both `domain` and `pack` — it falls back to `"hiring"`, a historical default carried over from the API itself — pass one explicitly.
+
 ## Collections
 
 ```python
@@ -242,8 +272,8 @@ LiyaEngine(
 - [x] Workflows (full CRUD, toggle, deploy, webhook secret rotate, run, run history)
 - [x] Evaluations (Datasets/Cases/Suites/Runs/Reviews CRUD, suite execution, cancel/resume, statistical + pairwise compare, standalone scoring)
 - [x] Full KBaaS (document list/get/delete/upload/push, async ingestion jobs + URL crawl, collection↔document/domain attach-detach, analytics/connections)
+- [x] Run / Run (streaming) — built-in packs only for streaming; custom domains use non-streaming `run()`
 - [ ] Flagged-chunk review
-- [ ] Run / Run (streaming)
 - [ ] Guardrail Policies
 - [ ] Prompt Studio (holding until the feature itself is committed/merged upstream)
 - [ ] Async client

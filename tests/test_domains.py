@@ -1,8 +1,10 @@
+import json
+
 import httpx
 import pytest
 import respx
 
-from liyaengine import LiyaEngine
+from liyaengine import LiyaEngine, LiyaEngineAPIError
 
 BASE_URL = "https://api.test.liyaengine.ai"
 
@@ -220,3 +222,54 @@ def test_intents_list_all(client):
     catalog = client.intents.list_all()
     assert len(catalog) == 1
     assert catalog[0].domain == "billing"
+
+
+@respx.mock
+def test_intents_run(client):
+    respx.post(f"{BASE_URL}/v1/run").mock(
+        return_value=httpx.Response(200, json={
+            "success": True,
+            "data": {"output": {"answer": "Refunds take 5-7 days."}, "session_id": "sess_2", "message_id": "msg_1"},
+            "metadata": {
+                "intent": "refund-status", "domain": "billing", "model_used": "gpt-4o-mini",
+                "tokens_used": 88, "cost_usd": 0.0008, "latency_ms": 301, "cached": False,
+            },
+            "usage": {"requests_used": 12, "tokens_used": 4908, "requests_remaining": 988, "tokens_remaining": 244870},
+        })
+    )
+    result = client.intents.run(domain="billing", intent="refund-status", message="How long do refunds take?")
+    assert result.data == {"output": {"answer": "Refunds take 5-7 days."}, "session_id": "sess_2", "message_id": "msg_1"}
+    assert result.metadata is not None and result.metadata["model_used"] == "gpt-4o-mini"
+    assert result.usage is not None and result.usage["requests_remaining"] == 988
+
+
+@respx.mock
+def test_intents_stream_yields_frames_in_order(client):
+    frames = [
+        {"type": "token", "delta": "Refunds "},
+        {"type": "token", "delta": "take 5-7 days."},
+        {
+            "type": "done", "session_id": "sess_3", "latency_ms": 300,
+            "input_tokens": 40, "output_tokens": 12, "cost_usd": 0.0005, "served_by": "platform",
+        },
+    ]
+    sse_body = "".join(f"data: {json.dumps(f)}\n\n" for f in frames)
+    respx.post(f"{BASE_URL}/v1/run/stream").mock(
+        return_value=httpx.Response(200, content=sse_body, headers={"content-type": "text/event-stream"})
+    )
+    events = list(client.intents.stream(domain="chat", intent="answer_question", message="hi"))
+    assert events == frames
+
+
+@respx.mock
+def test_intents_stream_raises_for_custom_domain_pre_flight_rejection(client):
+    respx.post(f"{BASE_URL}/v1/run/stream").mock(
+        return_value=httpx.Response(400, json={
+            "success": False,
+            "error": {"code": "STREAMING_NOT_SUPPORTED", "message": "Streaming is only supported for built-in packs today."},
+        })
+    )
+    with pytest.raises(LiyaEngineAPIError) as exc_info:
+        list(client.intents.stream(domain="legal-ops", intent="review-contract"))
+    assert exc_info.value.code == "STREAMING_NOT_SUPPORTED"
+    assert exc_info.value.status == 400

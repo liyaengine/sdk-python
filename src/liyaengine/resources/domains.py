@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Literal, Optional, TypedDict, Union, cast
+from typing import Any, Dict, Iterator, List, Literal, Optional, TypedDict, Union, cast
 from urllib.parse import quote
 
 from .._http import HttpClient
+from .run import RunIntentResult, RunStreamEvent, _translate_run_input
 
 
 class InlinePromptBinding(TypedDict):
@@ -375,8 +376,10 @@ class DomainsResource:
 
 class IntentsResource:
     """Flat intent catalog — cuts across every custom domain, for external
-    discovery (mirrors the dashboard's API Explorer page). Read-only; create/
-    update/delete an intent via client.domains.intents."""
+    discovery (mirrors the dashboard's API Explorer page) — plus run()/
+    stream(), the primary way to actually invoke LiyaEngine: list what you
+    can run here, run it below. Create/update/delete an intent via
+    client.domains.intents instead — this resource doesn't own that."""
 
     def __init__(self, http: HttpClient) -> None:
         self._http = http
@@ -384,3 +387,65 @@ class IntentsResource:
     def list_all(self) -> List[IntentCatalogEntry]:
         data = self._http.get("/v1/intents")
         return [IntentCatalogEntry._from_dict(i) for i in data["intents"]]
+
+    def run(
+        self,
+        *,
+        intent: str,
+        domain: Optional[str] = None,
+        pack: Optional[str] = None,
+        input: Optional[Dict[str, Any]] = None,
+        message: Optional[str] = None,
+        session_id: Optional[str] = None,
+        retrieval: Optional[Dict[str, Any]] = None,
+        guardrails: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        preferences: Optional[Dict[str, Any]] = None,
+    ) -> RunIntentResult:
+        """Run any intent — built-in pack or custom domain — and get one
+        JSON response back. This is the endpoint every other execution path
+        (agents.run(), a domain's public /v1/{domain}/{intent} route)
+        ultimately reaches; call this directly when you don't need an
+        Agent's multi-turn orchestration on top.
+
+        `domain` defaults to 'hiring' if neither this nor `pack` is given —
+        a historical default carried over from the API itself, not a
+        recommendation. Pass one explicitly.
+        """
+        body = _translate_run_input(
+            intent=intent, domain=domain, pack=pack, input=input, message=message,
+            session_id=session_id, retrieval=retrieval, guardrails=guardrails,
+            metadata=metadata, preferences=preferences,
+        )
+        payload = self._http.post_envelope("/v1/run", body)
+        return RunIntentResult._from_dict(payload)
+
+    def stream(
+        self,
+        *,
+        intent: str,
+        domain: Optional[str] = None,
+        pack: Optional[str] = None,
+        input: Optional[Dict[str, Any]] = None,
+        message: Optional[str] = None,
+        session_id: Optional[str] = None,
+        retrieval: Optional[Dict[str, Any]] = None,
+        guardrails: Optional[Dict[str, Any]] = None,
+    ) -> Iterator[RunStreamEvent]:
+        """Same request shape as run(), delivered as a token-by-token stream
+        instead of one response — iterate with a for loop.
+
+        Built-in packs only (chat, hiring, fintech, healthcare, ehs,
+        compliance). A custom-domain intent raises a LiyaEngineAPIError
+        (STREAMING_NOT_SUPPORTED) immediately, before the stream opens — use
+        run() for those. Once the stream *has* opened, every other failure
+        (quota, provider error) arrives as an in-band {"type": "error"}
+        event, not a raised error — always check event["type"] in your loop.
+        """
+        body = _translate_run_input(
+            intent=intent, domain=domain, pack=pack, input=input, message=message,
+            session_id=session_id, retrieval=retrieval, guardrails=guardrails,
+            metadata=None, preferences=None,
+        )
+        for frame in self._http.stream("/v1/run/stream", body):
+            yield cast(RunStreamEvent, frame)
