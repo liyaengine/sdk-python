@@ -7,6 +7,7 @@ from .resources.evaluations import EvalDataset, EvalCase, EvalSuite, EvalRun, Ev
 from .resources.domains import Domain, Intent, DomainSource, IntentVersionSummary
 from .resources.documents import Document, DocumentChunk, IngestionJob
 from .resources.run import RunIntentResult, RunStreamEvent, RunTokenEvent, RunDoneEvent, RunErrorEvent
+from .resources.domain_tools import PlatformTool, MaskedCustomTool, DomainToolsConfig, TestDomainToolResult, CustomToolInput
 
 __all__ = [
     "LiyaEngine",
@@ -33,6 +34,11 @@ __all__ = [
     "RunTokenEvent",
     "RunDoneEvent",
     "RunErrorEvent",
+    "PlatformTool",
+    "MaskedCustomTool",
+    "DomainToolsConfig",
+    "TestDomainToolResult",
+    "CustomToolInput",
 ]
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"

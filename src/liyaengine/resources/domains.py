@@ -6,6 +6,7 @@ from urllib.parse import quote
 
 from .._http import HttpClient
 from .run import RunIntentResult, RunStreamEvent, _translate_run_input
+from .domain_tools import DomainToolsResource
 
 
 class InlinePromptBinding(TypedDict):
@@ -296,6 +297,7 @@ class DomainsResource:
         self._http = http
         self.intents = DomainIntentsResource(http)
         self.sources = DomainSourcesResource(http)
+        self.tools = DomainToolsResource(http)
 
     def list(self) -> List[Domain]:
         data = self._http.get("/v1/domains")

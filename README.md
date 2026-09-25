@@ -62,6 +62,44 @@ result = client.domains.query("billing", query="refund timeline")
 
 > `domains.update()`/`domains.intents.update()` return `{"updated": 1}`, not the updated object — call `get()`/`list()` again for the fresh state. Guardrail policy attachment is still dashboard-only (a separate resource with no `/v1` route yet). To bind an intent's prompt to a Prompt Studio library version instead of inline text, pass `prompt_binding={"kind": "library_version", "prompt_id": ..., "version_id": ..., "content_hash": ...}` in place of `prompt_template` — editing `prompt_template` directly afterward without also passing `prompt_binding` silently detaches the binding.
 
+## Domain Tools
+
+The custom webhook tools an agent-mode intent (`agent_config={"enabled": True, ...}`) can call mid-conversation — e.g. a real order-status lookup against your own backend. Every custom tool is dispatched by one generic platform tool, `webhook_sender`; the LLM calls `webhook_sender({tool_name, payload})`, and `webhook_sender` looks up `tool_name` in the domain's `custom_tools` to find the real endpoint.
+
+```python
+# 1. Define the tool on the domain.
+client.domains.tools.update(
+    "shipping-support",
+    # webhook_sender must be explicitly enabled here — defining custom_tools
+    # alone does nothing, since it's webhook_sender that actually dispatches them.
+    enabled_platform_tools=["webhook_sender"],
+    custom_tools=[{
+        "name": "lookup_order",
+        "display_name": "Order Lookup",
+        "description": 'Looks up a real order by number and returns its current status. Call with {"order_number": "..."}.',
+        "endpoint_url": "https://fernbankoutdoor.com/api/liya-tools/lookup-order",
+        "auth_type": "api_key",
+        "auth_value": os.environ["LIYA_TOOL_SHARED_SECRET"],  # write-only — never returned by get()
+    }],
+)
+
+# 2. Verify the endpoint actually works before wiring it into a live intent.
+test_result = client.domains.tools.test("shipping-support", "lookup_order", {"order_number": "A1092"})
+
+# 3. Point the intent at "webhook_sender" — NOT "lookup_order". agent_config["tools"]
+# is a platform-tool allowlist; "lookup_order" is only ever an *argument* the
+# model passes to webhook_sender at call time, never an entry in this array.
+client.domains.intents.update(
+    "shipping-support", "track-order",
+    agent_config={"enabled": True, "tools": ["webhook_sender"], "max_steps": 3},
+)
+
+config = client.domains.tools.get("shipping-support")
+# config.custom_tools[0].auth_configured is True — the real credential is never returned, only whether one is set.
+```
+
+> **Two real footguns, easy to hit on the first try:** (1) `enabled_platform_tools` must include `"webhook_sender"` — a domain with only `custom_tools` defined and no platform tool enabled registers *zero* tools, and the model will just apologize that it can't look anything up (or worse, quietly fabricate a plausible-looking answer if your prompt insists it report a result). (2) `agent_config["tools"]` takes platform tool names, so it's `["webhook_sender"]`, never `["lookup_order"]` — the custom tool's own name is an argument, not an allowlist entry. Beyond that: there's no JSON-schema parameter definition for a custom tool today — `description` is the *only* thing the model sees to decide when and how to call it, so be explicit about the fields you expect. `custom_tools` in `update()` REPLACES the entire array, not a per-tool patch. Omit `auth_value` on an update to preserve the existing stored credential; it's encrypted separately and never round-trips back to a reader.
+
 ## Run
 
 The primary way to actually invoke an intent — built-in pack or custom domain — and get a real, LLM-generated response back. `agents.run()` and a domain's public `/v1/{domain}/{intent}` route both reach this same endpoint under the hood; call it directly when you don't need an Agent's multi-turn orchestration on top.
@@ -273,6 +311,7 @@ LiyaEngine(
 - [x] Evaluations (Datasets/Cases/Suites/Runs/Reviews CRUD, suite execution, cancel/resume, statistical + pairwise compare, standalone scoring)
 - [x] Full KBaaS (document list/get/delete/upload/push, async ingestion jobs + URL crawl, collection↔document/domain attach-detach, analytics/connections)
 - [x] Run / Run (streaming) — built-in packs only for streaming; custom domains use non-streaming `run()`
+- [x] Domain agentic tool configuration (previously dashboard-only)
 - [ ] Flagged-chunk review
 - [ ] Guardrail Policies
 - [ ] Prompt Studio (holding until the feature itself is committed/merged upstream)

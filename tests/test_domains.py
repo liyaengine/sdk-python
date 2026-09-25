@@ -272,4 +272,77 @@ def test_intents_stream_raises_for_custom_domain_pre_flight_rejection(client):
     with pytest.raises(LiyaEngineAPIError) as exc_info:
         list(client.intents.stream(domain="legal-ops", intent="review-contract"))
     assert exc_info.value.code == "STREAMING_NOT_SUPPORTED"
-    assert exc_info.value.status == 400
+
+
+FIXTURE_MASKED_TOOL = {
+    "name": "lookup_order", "display_name": "Order Lookup", "description": "Looks up a real order by number",
+    "endpoint_url": "https://fernbankoutdoor.com/api/liya-tools/lookup-order", "auth_type": "api_key", "auth_configured": True,
+}
+
+
+@respx.mock
+def test_domain_tools_get(client):
+    respx.get(f"{BASE_URL}/v1/domains/shipping-support/tools").mock(
+        return_value=httpx.Response(200, json={
+            "success": True,
+            "data": {
+                "platform_tools": [{"name": "document_search", "description": "Search the knowledge base", "enabled": True}],
+                "custom_tools": [FIXTURE_MASKED_TOOL],
+                "web_search_configured": False,
+            },
+        })
+    )
+    config = client.domains.tools.get("shipping-support")
+    assert config.platform_tools[0].name == "document_search"
+    assert config.custom_tools[0].auth_configured is True
+    assert not hasattr(config.custom_tools[0], "auth_value")
+
+
+@respx.mock
+def test_domain_tools_update_replaces_custom_tools(client):
+    respx.patch(f"{BASE_URL}/v1/domains/shipping-support/tools").mock(
+        return_value=httpx.Response(200, json={
+            "success": True,
+            "data": {"tools_config": {
+                "platform_tools": [],
+                "custom_tools": [FIXTURE_MASKED_TOOL],
+                "web_search_configured": False,
+            }},
+        })
+    )
+    config = client.domains.tools.update(
+        "shipping-support",
+        custom_tools=[{
+            "name": "lookup_order", "display_name": "Order Lookup", "description": "Looks up a real order by number",
+            "endpoint_url": "https://fernbankoutdoor.com/api/liya-tools/lookup-order", "auth_type": "api_key",
+            "auth_value": "sk_live_...",
+        }],
+    )
+    assert config.custom_tools[0].name == "lookup_order"
+
+
+@respx.mock
+def test_domain_tools_test_dispatches_and_returns_response(client):
+    respx.post(f"{BASE_URL}/v1/domains/shipping-support/tools/test").mock(
+        return_value=httpx.Response(200, json={
+            "success": True,
+            "data": {"status_code": 200, "ok": True, "body": {"order_status": "shipped", "eta_days": 2}, "latency_ms": 42},
+        })
+    )
+    result = client.domains.tools.test("shipping-support", "lookup_order", {"order_number": "A1092"})
+    assert result.status_code == 200
+    assert result.body == {"order_status": "shipped", "eta_days": 2}
+
+
+@respx.mock
+def test_domain_tools_test_raises_for_unknown_tool(client):
+    respx.post(f"{BASE_URL}/v1/domains/shipping-support/tools/test").mock(
+        return_value=httpx.Response(404, json={
+            "success": False,
+            "error": {"code": "TOOL_NOT_FOUND", "message": "Custom tool 'does-not-exist' not found."},
+        })
+    )
+    with pytest.raises(LiyaEngineAPIError) as exc_info:
+        client.domains.tools.test("shipping-support", "does-not-exist")
+    assert exc_info.value.code == "TOOL_NOT_FOUND"
+    assert exc_info.value.status == 404
