@@ -12,6 +12,7 @@ from .resources.evaluations import EvaluationsResource
 from .resources.domains import DomainsResource, IntentsResource
 from .resources.documents import DocumentsResource
 from .resources.guardrail_policies import GuardrailPoliciesResource
+from .resources.prompts import PromptsResource
 
 _DEFAULT_BASE_URL = "https://api.liyaengine.ai"
 
@@ -52,6 +53,7 @@ class LiyaEngine:
         self.intents = IntentsResource(self._http)
         self.documents = DocumentsResource(self._http)
         self.guardrail_policies = GuardrailPoliciesResource(self._http)
+        self.prompts = PromptsResource(self._http)
 
     def close(self) -> None:
         self._http.close()

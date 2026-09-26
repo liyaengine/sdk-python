@@ -2,7 +2,7 @@
 
 Official Python client for the [Liya Engine](https://liyaengine.ai) public API.
 
-> **Status: early access.** This SDK currently covers Domains, Intents, Collections, Documents, Agents, Workflows, Evaluations, direct intent execution, and Guardrail Policies. More resources ship incrementally — see [Roadmap](#roadmap).
+> **Status: early access.** This SDK currently covers Domains, Intents, Collections, Documents, Agents, Workflows, Evaluations, direct intent execution, Guardrail Policies, and Prompt Studio. More resources ship incrementally — see [Roadmap](#roadmap).
 
 ## Install
 
@@ -331,6 +331,38 @@ versions = client.guardrail_policies.versions.list(strict.id)
 
 > The platform's ML classifier (for injection detection and grounding/hallucination checks) isn't a field on `config` — it's an infrastructure capability that activates automatically whenever it's configured tenant-wide, layered on top of `content_policy.injection_detection` and `post_llm.hallucination_check`. There's nothing to toggle for it specifically.
 
+## Prompt Studio
+
+A versioned, immutably-pinned prompt library. A prompt's content only ever changes by adding a new version — never by editing one in place — and `publish()` promotes one exact version to the tenant's production pointer. AI-authoring (draft/improve a prompt with Prompt Copilot) is dashboard-only; this SDK covers list/get/create + versioning + publish.
+
+```python
+# Creates the prompt AND its immutable version 1 in one call.
+prompt = client.prompts.create(
+    prompt_key="refund-policy",
+    name="Refund Policy",
+    content="Answer {{question}} using only the approved refund policy below.",
+    variables=[{"name": "question", "type": "string", "required": True}],
+)
+
+# Content only changes by adding a new version — never in place.
+v2 = client.prompts.versions.create(
+    prompt.id,
+    content="Answer {{question}} using only the approved refund policy below. Always cite the clause.",
+)
+
+# Publishing promotes one exact version to production — existing consumers
+# bound via prompt_binding stay pinned to their own version until repointed.
+client.prompts.publish(prompt.id, version_id=v2.id)
+
+# Bind an intent's prompt to this library version instead of inline text.
+client.domains.intents.update(
+    "billing", "refund-status",
+    prompt_binding={"kind": "library_version", "prompt_id": prompt.id, "version_id": v2.id, "content_hash": v2.content_hash},
+)
+```
+
+> Editing `prompt_template` directly on a bound intent afterward, without also passing `prompt_binding`, silently detaches the binding — see the Domains & Intents section above.
+
 ## Error handling
 
 Every failed request raises `LiyaEngineAPIError`, carrying the API's `code`, `message`, and HTTP `status`:
@@ -372,7 +404,7 @@ LiyaEngine(
 - [x] Domain agentic tool configuration (previously dashboard-only)
 - [x] Guardrail Policies (full CRUD, attach/detach, live test console, versioning, analytics — previously dashboard-only)
 - [ ] Flagged-chunk review
-- [ ] Prompt Studio (holding until the feature itself is committed/merged upstream)
+- [x] Prompt Studio (list/get/create + versioning + publish — AI-authoring stays dashboard-only)
 - [ ] Async client
 
 Full docs: https://liyaengine.ai/docs/sdks/python

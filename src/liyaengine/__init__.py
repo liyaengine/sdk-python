@@ -12,6 +12,7 @@ from .resources.guardrail_policies import (
     GuardrailPolicy, GuardrailPolicyConnections, GuardrailIssue, TestGuardrailPolicyResult,
     GuardrailPolicyVersionSummary, GuardrailPolicyAnalytics, ConsumerType as GuardrailConsumerType,
 )
+from .resources.prompts import Prompt, PromptVersion, PromptDeployment, PublishPromptResult
 
 __all__ = [
     "LiyaEngine",
@@ -54,6 +55,10 @@ __all__ = [
     "GuardrailPolicyVersionSummary",
     "GuardrailPolicyAnalytics",
     "GuardrailConsumerType",
+    "Prompt",
+    "PromptVersion",
+    "PromptDeployment",
+    "PublishPromptResult",
 ]
 
-__version__ = "0.11.0"
+__version__ = "0.12.0"
