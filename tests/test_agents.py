@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 import respx
@@ -163,3 +165,28 @@ def test_get_transcript(client):
     )
     result = client.agents.get_transcript("support-triage", "ses_1")
     assert result["session"]["id"] == "ses_1"
+
+
+@respx.mock
+def test_run_stream_yields_step_frames_then_done(client):
+    frames = [
+        {"type": "step", "step": {"step_number": 1, "type": "llm_call", "model": "gpt-4o", "latency_ms": 300, "timestamp": "2026-01-01T00:00:00.000Z"}},
+        {"type": "step", "step": {"step_number": 2, "type": "tool_execution", "tool_name": "lookup_order", "tool_success": True, "latency_ms": 80, "timestamp": "2026-01-01T00:00:00.000Z"}},
+        {"type": "done", "run_id": "run_1", "session_id": "ses_1", "history_truncated": False, "status": "completed", "output": "Your order shipped.", "steps": 2, "total_cost": 0.002, "total_latency_ms": 500},
+    ]
+    sse_body = "".join(f"data: {json.dumps(f)}\n\n" for f in frames)
+    respx.post(f"{BASE_URL}/v1/agents/support-triage/run/stream").mock(
+        return_value=httpx.Response(200, content=sse_body, headers={"content-type": "text/event-stream"})
+    )
+    events = list(client.agents.run_stream("support-triage", input={"message": "Where is my order?"}))
+    assert events == frames
+
+
+@respx.mock
+def test_run_stream_raises_for_pre_flight_rejection(client):
+    respx.post(f"{BASE_URL}/v1/agents/support-triage/run/stream").mock(
+        return_value=httpx.Response(400, json={"success": False, "error": {"code": "AGENT_NOT_ACTIVE", "message": "not active"}})
+    )
+    with pytest.raises(LiyaEngineAPIError) as exc_info:
+        list(client.agents.run_stream("support-triage", input={"message": "hi"}))
+    assert exc_info.value.code == "AGENT_NOT_ACTIVE"

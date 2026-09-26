@@ -1,8 +1,8 @@
 from .client import LiyaEngine
 from .errors import LiyaEngineAPIError, LiyaEngineNetworkError
-from .resources.agents import Agent
+from .resources.agents import Agent, AgentStep, AgentRunStreamEvent
 from .resources.collections import Collection, CollectionDocumentSummary
-from .resources.workflows import Workflow
+from .resources.workflows import Workflow, WorkflowStepTrace, WorkflowRunStreamEvent
 from .resources.evaluations import EvalDataset, EvalCase, EvalSuite, EvalRun, EvalReview
 from .resources.domains import Domain, Intent, DomainSource, IntentVersionSummary
 from .resources.documents import Document, DocumentChunk, IngestionJob
@@ -20,7 +20,11 @@ __all__ = [
     "Collection",
     "CollectionDocumentSummary",
     "Agent",
+    "AgentStep",
+    "AgentRunStreamEvent",
     "Workflow",
+    "WorkflowStepTrace",
+    "WorkflowRunStreamEvent",
     "EvalDataset",
     "EvalCase",
     "EvalSuite",
@@ -52,4 +56,4 @@ __all__ = [
     "GuardrailConsumerType",
 ]
 
-__version__ = "0.10.0"
+__version__ = "0.11.0"

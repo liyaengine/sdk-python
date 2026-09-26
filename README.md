@@ -211,6 +211,20 @@ client.agents.deploy(agent.agent_key)
 result = client.agents.run(agent.agent_key, input={"message": "My order hasn't arrived yet."})
 
 history = client.agents.list_runs(agent.agent_key)
+
+# run_stream() — real-time step progress instead of one awaited result.
+# Step-level, not token-level: the agent orchestration loop has no
+# streaming synthesis call, so there's no token delta to yield. What
+# streams is orchestration progress itself — a "step" event the instant
+# each llm_call/tool_execution happens — with the complete final answer
+# arriving in one "done" event, never token-chunked.
+for event in client.agents.run_stream(agent.agent_key, input={"message": "Where is my order?"}):
+    if event["type"] == "step":
+        print(event["step"]["type"], event["step"].get("tool_name") or event["step"].get("model"))
+    elif event["type"] == "done":
+        print(event["output"])
+    elif event["type"] == "error":
+        print(event["code"], event["message"])
 ```
 
 ## Workflows
@@ -236,6 +250,16 @@ client.workflows.toggle(workflow.workflow_key)
 result = client.workflows.run(workflow.workflow_key, input={"email": "ada@example.com"})
 
 history = client.workflows.list_runs(workflow.workflow_key)
+
+# run_stream() — real-time step progress, same step-level-not-token-level
+# reasoning as agents.run_stream(): no step type in a Workflow streams
+# tokens, so a "step" event fires as each one is traced, and "done" carries
+# the complete trace in one piece.
+for event in client.workflows.run_stream(workflow.workflow_key, input={"email": "ada@example.com"}):
+    if event["type"] == "step":
+        print(event["step"]["stepType"], event["step"]["success"])
+    elif event["type"] == "done":
+        print(event["status"], event["trace"])
 ```
 
 > `deploy()` and `rotate_webhook_secret()` return the plaintext webhook secret exactly once. Store it immediately — subsequent reads (`get`, `list`) only ever expose `trigger_config["has_secret"]`.
@@ -340,8 +364,8 @@ LiyaEngine(
 
 - [x] Domains & Intents (full CRUD parity with the dashboard, prompt binding, agent/execution/retrieval/cache config, versioning, direct retrieval query, narrow document upload — guardrail policy attachment via `guardrail_policies.attach()`)
 - [x] Collections
-- [x] Agents (full CRUD, deploy, run, run/session history)
-- [x] Workflows (full CRUD, toggle, deploy, webhook secret rotate, run, run history)
+- [x] Agents (full CRUD, deploy, run, run/session history, real-time step streaming via `run_stream()`)
+- [x] Workflows (full CRUD, toggle, deploy, webhook secret rotate, run, run history, real-time step streaming via `run_stream()`)
 - [x] Evaluations (Datasets/Cases/Suites/Runs/Reviews CRUD, suite execution, cancel/resume, statistical + pairwise compare, standalone scoring)
 - [x] Full KBaaS (document list/get/delete/upload/push, async ingestion jobs + URL crawl, collection↔document/domain attach-detach, analytics/connections)
 - [x] Run / Run (streaming) — built-in packs only for streaming; custom domains use non-streaming `run()`

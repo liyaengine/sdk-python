@@ -1,10 +1,48 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, Iterator, List, Literal, Optional, TypedDict, Union, cast
 from urllib.parse import quote, urlencode
 
 from .._http import HttpClient
+
+
+class WorkflowStepTrace(TypedDict, total=False):
+    """One traced step — a webhook/action call, an ai_intent/ai_agent turn, a condition branch, etc."""
+
+    stepId: str
+    stepType: str
+    name: Optional[str]
+    actionId: Optional[str]
+    actionName: Optional[str]
+    success: bool
+    response: Any
+    error: str
+    skipped: bool
+    durationMs: int
+
+
+class WorkflowRunStepEvent(TypedDict):
+    type: Literal["step"]
+    step: WorkflowStepTrace
+
+
+class WorkflowRunDoneEvent(TypedDict, total=False):
+    type: Literal["done"]
+    run_id: str
+    conversation_id: str
+    status: Literal["completed", "needs_input", "failed"]
+    trace: List[Any]
+    missing_parameter: Dict[str, Any]
+
+
+class WorkflowRunErrorEvent(TypedDict):
+    type: Literal["error"]
+    code: str
+    message: str
+
+
+WorkflowRunStreamEvent = Union[WorkflowRunStepEvent, WorkflowRunDoneEvent, WorkflowRunErrorEvent]
 
 
 @dataclass(frozen=True)
@@ -146,6 +184,24 @@ class WorkflowsResource:
         if conversation_id is not None:
             body["conversation_id"] = conversation_id
         return cast(Dict[str, Any], self._http.post(f"/v1/workflows/{quote(workflow_id_or_key)}/run", body))
+
+    def run_stream(
+        self, workflow_id_or_key: str, *, input: Optional[Dict[str, Any]] = None, conversation_id: Optional[str] = None
+    ) -> Iterator[WorkflowRunStreamEvent]:
+        """Same input as run() — real-time step progress instead of one awaited result.
+
+        Step-level, not token-level: no step type in a Workflow streams
+        tokens, so there's no delta to yield. A "step" event fires as each
+        one is traced, and a single "done" event carries the complete
+        trace.
+        """
+        body: Dict[str, Any] = {}
+        if input is not None:
+            body["input"] = input
+        if conversation_id is not None:
+            body["conversation_id"] = conversation_id
+        for frame in self._http.stream(f"/v1/workflows/{quote(workflow_id_or_key)}/run/stream", body):
+            yield cast(WorkflowRunStreamEvent, frame)
 
     def list_runs(
         self, workflow_id_or_key: str, *, page: Optional[int] = None, page_size: Optional[int] = None, status: Optional[str] = None,

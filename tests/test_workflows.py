@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 import respx
@@ -161,3 +163,28 @@ def test_get_run(client):
     )
     run = client.workflows.get_run("lead-intake", "run_1")
     assert run["id"] == "run_1"
+
+
+@respx.mock
+def test_run_stream_yields_step_frames_then_done(client):
+    frames = [
+        {"type": "step", "step": {"stepId": "s1", "stepType": "ai_intent", "name": "Classify", "success": True, "response": {"confidence": 0.9}, "durationMs": 120}},
+        {"type": "step", "step": {"stepId": "s2", "stepType": "condition", "name": "Confidence check", "success": True, "durationMs": 5}},
+        {"type": "done", "run_id": "run_1", "conversation_id": "convo_1", "status": "completed", "trace": []},
+    ]
+    sse_body = "".join(f"data: {json.dumps(f)}\n\n" for f in frames)
+    respx.post(f"{BASE_URL}/v1/workflows/lead-intake/run/stream").mock(
+        return_value=httpx.Response(200, content=sse_body, headers={"content-type": "text/event-stream"})
+    )
+    events = list(client.workflows.run_stream("lead-intake", input={"foo": "bar"}))
+    assert events == frames
+
+
+@respx.mock
+def test_run_stream_raises_for_pre_flight_rejection(client):
+    respx.post(f"{BASE_URL}/v1/workflows/ghost-wf/run/stream").mock(
+        return_value=httpx.Response(404, json={"success": False, "error": {"code": "WORKFLOW_NOT_FOUND", "message": "not found"}})
+    )
+    with pytest.raises(LiyaEngineAPIError) as exc_info:
+        list(client.workflows.run_stream("ghost-wf"))
+    assert exc_info.value.code == "WORKFLOW_NOT_FOUND"

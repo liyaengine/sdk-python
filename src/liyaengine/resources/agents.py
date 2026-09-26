@@ -1,10 +1,56 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, Iterator, List, Literal, Optional, TypedDict, Union, cast
 from urllib.parse import quote, urlencode
 
 from .._http import HttpClient
+
+
+class AgentStep(TypedDict, total=False):
+    """One orchestration step (@liyaengine/core's AgentOrchestrator) — an llm_call turn or a tool_execution."""
+
+    step_number: int
+    type: Literal["llm_call", "tool_execution"]
+    model: str
+    tool_name: str
+    tool_input: Any
+    tool_output: Any
+    tool_success: bool
+    input_tokens: int
+    output_tokens: int
+    cost: float
+    served_by: Literal["platform", "byok"]
+    latency_ms: int
+    timestamp: str
+    error: str
+    error_code: str
+
+
+class AgentRunStepEvent(TypedDict):
+    type: Literal["step"]
+    step: AgentStep
+
+
+class AgentRunDoneEvent(TypedDict):
+    type: Literal["done"]
+    run_id: str
+    session_id: str
+    history_truncated: bool
+    status: str
+    output: str
+    steps: int
+    total_cost: float
+    total_latency_ms: Optional[int]
+
+
+class AgentRunErrorEvent(TypedDict):
+    type: Literal["error"]
+    code: str
+    message: str
+
+
+AgentRunStreamEvent = Union[AgentRunStepEvent, AgentRunDoneEvent, AgentRunErrorEvent]
 
 
 @dataclass(frozen=True)
@@ -158,6 +204,23 @@ class AgentsResource:
         if session_id is not None:
             body["session_id"] = session_id
         return cast(Dict[str, Any], self._http.post(f"/v1/agents/{quote(agent_key)}/run", body))
+
+    def run_stream(
+        self, agent_key: str, *, input: Dict[str, Any], session_id: Optional[str] = None,
+    ) -> Iterator[AgentRunStreamEvent]:
+        """Same input as run() — real-time step progress instead of one awaited result.
+
+        Step-level, not token-level: AgentOrchestrator has no streaming
+        synthesis call, so there's no token delta to yield. A "step" event
+        fires in real time as each llm_call/tool_execution happens, and a
+        single "done" event carries the complete, already-generated final
+        answer — never token-chunked.
+        """
+        body: Dict[str, Any] = {"input": input}
+        if session_id is not None:
+            body["session_id"] = session_id
+        for frame in self._http.stream(f"/v1/agents/{quote(agent_key)}/run/stream", body):
+            yield cast(AgentRunStreamEvent, frame)
 
     def list_runs(
         self, agent_key: str, *, page: Optional[int] = None, page_size: Optional[int] = None,
