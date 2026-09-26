@@ -11,6 +11,7 @@ from .resources.workflows import WorkflowsResource
 from .resources.evaluations import EvaluationsResource
 from .resources.domains import DomainsResource, IntentsResource
 from .resources.documents import DocumentsResource
+from .resources.guardrail_policies import GuardrailPoliciesResource
 
 _DEFAULT_BASE_URL = "https://api.liyaengine.ai"
 
@@ -50,6 +51,7 @@ class LiyaEngine:
         self.domains = DomainsResource(self._http)
         self.intents = IntentsResource(self._http)
         self.documents = DocumentsResource(self._http)
+        self.guardrail_policies = GuardrailPoliciesResource(self._http)
 
     def close(self) -> None:
         self._http.close()

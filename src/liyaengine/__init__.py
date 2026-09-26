@@ -8,6 +8,10 @@ from .resources.domains import Domain, Intent, DomainSource, IntentVersionSummar
 from .resources.documents import Document, DocumentChunk, IngestionJob
 from .resources.run import RunIntentResult, RunStreamEvent, RunTokenEvent, RunDoneEvent, RunErrorEvent
 from .resources.domain_tools import PlatformTool, MaskedCustomTool, DomainToolsConfig, TestDomainToolResult, CustomToolInput
+from .resources.guardrail_policies import (
+    GuardrailPolicy, GuardrailPolicyConnections, GuardrailIssue, TestGuardrailPolicyResult,
+    GuardrailPolicyVersionSummary, GuardrailPolicyAnalytics, ConsumerType as GuardrailConsumerType,
+)
 
 __all__ = [
     "LiyaEngine",
@@ -39,6 +43,13 @@ __all__ = [
     "DomainToolsConfig",
     "TestDomainToolResult",
     "CustomToolInput",
+    "GuardrailPolicy",
+    "GuardrailPolicyConnections",
+    "GuardrailIssue",
+    "TestGuardrailPolicyResult",
+    "GuardrailPolicyVersionSummary",
+    "GuardrailPolicyAnalytics",
+    "GuardrailConsumerType",
 ]
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
