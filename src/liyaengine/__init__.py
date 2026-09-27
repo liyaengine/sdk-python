@@ -5,7 +5,7 @@ from .resources.collections import Collection, CollectionDocumentSummary
 from .resources.workflows import Workflow, WorkflowStepTrace, WorkflowRunStreamEvent
 from .resources.evaluations import EvalDataset, EvalCase, EvalSuite, EvalRun, EvalReview, EvalGateStatus, EvalGateCheckResult
 from .resources.domains import Domain, Intent, DomainSource, IntentVersionSummary
-from .resources.documents import Document, DocumentChunk, IngestionJob
+from .resources.documents import Document, DocumentChunk, IngestionJob, FlaggedChunk
 from .resources.run import RunIntentResult, RunStreamEvent, RunTokenEvent, RunDoneEvent, RunErrorEvent
 from .resources.domain_tools import PlatformTool, MaskedCustomTool, DomainToolsConfig, TestDomainToolResult, CustomToolInput
 from .resources.guardrail_policies import (
@@ -40,6 +40,7 @@ __all__ = [
     "Document",
     "DocumentChunk",
     "IngestionJob",
+    "FlaggedChunk",
     "RunIntentResult",
     "RunStreamEvent",
     "RunTokenEvent",
@@ -63,4 +64,4 @@ __all__ = [
     "PublishPromptResult",
 ]
 
-__version__ = "0.14.0"
+__version__ = "0.15.0"

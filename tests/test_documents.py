@@ -141,3 +141,25 @@ def test_jobs_cancel(client):
     )
     result = client.documents.jobs.cancel("job_1")
     assert result["job"].status == "cancelled"
+
+
+@respx.mock
+def test_list_flagged_chunks(client):
+    respx.get(f"{BASE_URL}/v1/documents/flagged-chunks").mock(
+        return_value=httpx.Response(200, json={"success": True, "data": {"chunks": [{
+            "id": "chunk_1", "source_type": "document", "source_id": "doc_123", "chunk_index": 2,
+            "content_text": "stale refund policy text", "correction_count": 3,
+            "flagged_at": "2026-01-02T00:00:00.000Z", "created_at": "2026-01-01T00:00:00.000Z",
+        }], "total": 1}})
+    )
+    chunks = client.documents.list_flagged_chunks()
+    assert len(chunks) == 1
+    assert chunks[0].correction_count == 3
+
+
+@respx.mock
+def test_resolve_flagged_chunk(client):
+    respx.post(f"{BASE_URL}/v1/documents/flagged-chunks/chunk_1/resolve").mock(
+        return_value=httpx.Response(200, json={"success": True})
+    )
+    assert client.documents.resolve_flagged_chunk("chunk_1") is None

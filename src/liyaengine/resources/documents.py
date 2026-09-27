@@ -99,6 +99,30 @@ def _query(**params: Any) -> str:
     return f"?{urlencode(pairs)}" if pairs else ""
 
 
+@dataclass(frozen=True)
+class FlaggedChunk:
+    """One chunk from the tenant-wide embedding store that accumulated enough human corrections to be flagged for review."""
+
+    id: str
+    # What kind of content this chunk came from (document, article, etc.).
+    source_type: str
+    source_id: str
+    chunk_index: int
+    content_text: str
+    correction_count: int
+    flagged_at: Optional[str]
+    created_at: str
+
+    @classmethod
+    def _from_dict(cls, data: Dict[str, Any]) -> "FlaggedChunk":
+        return cls(
+            id=data["id"], source_type=data["source_type"], source_id=data["source_id"],
+            chunk_index=data["chunk_index"], content_text=data["content_text"],
+            correction_count=data["correction_count"], flagged_at=data.get("flagged_at"),
+            created_at=data["created_at"],
+        )
+
+
 class IngestionJobsResource:
     """Async ingestion jobs (URL crawl, file upload) — a non-blocking
     alternative to documents.upload()/push() for large files or deep
@@ -237,3 +261,15 @@ class DocumentsResource:
         if collection_ids is not None:
             body["collectionIds"] = collection_ids
         return cast(Dict[str, Any], self._http.post("/v1/documents/push", body))
+
+    def list_flagged_chunks(self) -> List[FlaggedChunk]:
+        """Read/resolve only — what actually flags a chunk (repeated human corrections on a support ticket or
+        conversation) is product-internal logic with no SDK surface. This is the generic, tenant-wide half: any
+        domain's content can end up flagged, regardless of what flagged it."""
+        data = self._http.get("/v1/documents/flagged-chunks")
+        return [FlaggedChunk._from_dict(c) for c in data["chunks"]]
+
+    def resolve_flagged_chunk(self, id: str) -> None:
+        """Clears the flag and resets the correction count to 0. Does not edit or delete the chunk's content —
+        resolving is an acknowledgement, not a fix."""
+        self._http.post(f"/v1/documents/flagged-chunks/{quote(id)}/resolve")
