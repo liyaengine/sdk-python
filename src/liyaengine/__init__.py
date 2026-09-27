@@ -3,7 +3,7 @@ from .errors import LiyaEngineAPIError, LiyaEngineNetworkError
 from .resources.agents import Agent, AgentStep, AgentRunStreamEvent
 from .resources.collections import Collection, CollectionDocumentSummary
 from .resources.workflows import Workflow, WorkflowStepTrace, WorkflowRunStreamEvent
-from .resources.evaluations import EvalDataset, EvalCase, EvalSuite, EvalRun, EvalReview
+from .resources.evaluations import EvalDataset, EvalCase, EvalSuite, EvalRun, EvalReview, EvalGateStatus, EvalGateCheckResult
 from .resources.domains import Domain, Intent, DomainSource, IntentVersionSummary
 from .resources.documents import Document, DocumentChunk, IngestionJob
 from .resources.run import RunIntentResult, RunStreamEvent, RunTokenEvent, RunDoneEvent, RunErrorEvent
@@ -31,6 +31,8 @@ __all__ = [
     "EvalSuite",
     "EvalRun",
     "EvalReview",
+    "EvalGateStatus",
+    "EvalGateCheckResult",
     "Domain",
     "Intent",
     "DomainSource",
@@ -61,4 +63,4 @@ __all__ = [
     "PublishPromptResult",
 ]
 
-__version__ = "0.13.0"
+__version__ = "0.14.0"

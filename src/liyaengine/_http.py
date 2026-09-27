@@ -37,29 +37,41 @@ class HttpClient:
             },
         )
 
-    def _request_envelope(self, method: str, path: str, json_body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _request_envelope(
+        self,
+        method: str,
+        path: str,
+        json_body: Optional[Dict[str, Any]] = None,
+        *,
+        timeout_s: Optional[float] = None,
+        max_retries: Optional[int] = None,
+    ) -> Dict[str, Any]:
         """Shared fetch/retry/error-envelope core — returns the parsed body
         as-is (past the success check), not unwrapped to just `data`. Almost
         every endpoint wants `request()` below instead."""
         last_error: Optional[BaseException] = None
+        retries = self._max_retries if max_retries is None else max_retries
+        request_kwargs: Dict[str, Any] = {"json": json_body}
+        if timeout_s is not None:
+            request_kwargs["timeout"] = timeout_s
 
-        for attempt in range(self._max_retries + 1):
+        for attempt in range(retries + 1):
             try:
-                response = self._client.request(method, path, json=json_body)
+                response = self._client.request(method, path, **request_kwargs)
             except httpx.TimeoutException as exc:
                 last_error = LiyaEngineNetworkError(f"Request timed out: {exc}", exc)
-                if attempt >= self._max_retries:
+                if attempt >= retries:
                     raise last_error from exc
                 time.sleep(2**attempt * 0.25)
                 continue
             except httpx.RequestError as exc:
                 last_error = LiyaEngineNetworkError(f"Network request failed: {exc}", exc)
-                if attempt >= self._max_retries:
+                if attempt >= retries:
                     raise last_error from exc
                 time.sleep(2**attempt * 0.25)
                 continue
 
-            if response.status_code in _RETRYABLE_STATUS and attempt < self._max_retries:
+            if response.status_code in _RETRYABLE_STATUS and attempt < retries:
                 time.sleep(2**attempt * 0.25)
                 continue
 
@@ -84,8 +96,16 @@ class HttpClient:
             raise last_error
         raise LiyaEngineNetworkError("Request failed")
 
-    def request(self, method: str, path: str, json_body: Optional[Dict[str, Any]] = None) -> Any:
-        return self._request_envelope(method, path, json_body).get("data")
+    def request(
+        self,
+        method: str,
+        path: str,
+        json_body: Optional[Dict[str, Any]] = None,
+        *,
+        timeout_s: Optional[float] = None,
+        max_retries: Optional[int] = None,
+    ) -> Any:
+        return self._request_envelope(method, path, json_body, timeout_s=timeout_s, max_retries=max_retries).get("data")
 
     def get(self, path: str) -> Any:
         return self.request("GET", path)
@@ -106,6 +126,14 @@ class HttpClient:
         past the standard success/error check, instead of unwrapping to
         just `data`."""
         return self._request_envelope("POST", path, json_body)
+
+    def post_long_running(self, path: str, json_body: Optional[Dict[str, Any]], timeout_s: float) -> Any:
+        """For a POST whose own request body already carries a wait budget
+        (today: only the eval release-gate check, max_wait_seconds up to
+        280s) — a caller-supplied timeout instead of the client's 30s
+        default, and no retries: retrying would trigger a second real eval
+        run, not safely redo an idempotent request."""
+        return self.request("POST", path, json_body, timeout_s=timeout_s, max_retries=0)
 
     def stream(self, path: str, json_body: Optional[Dict[str, Any]] = None) -> Iterator[Dict[str, Any]]:
         """Streams POST {path} as server-sent events, yielding each parsed

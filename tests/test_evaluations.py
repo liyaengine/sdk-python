@@ -220,6 +220,49 @@ def test_compare_models(client):
 
 
 @respx.mock
+def test_get_gate_reads_latest_run_without_triggering_one(client):
+    respx.get(f"{BASE_URL}/v1/evals/suites/suite_123/gate").mock(
+        return_value=httpx.Response(200, json={"success": True, "data": {"gate": {
+            "suite_id": "suite_123", "gate_configured": True, "run_id": "run_123", "run_status": "completed",
+            "gate_decision": "passed", "gate_failure_reasons": [], "evaluation_outcome": "passed",
+            "mean_score": 4.5, "cases_total": 3, "cases_passed": 3, "completed_at": "2026-01-01T00:00:00.000Z",
+        }}})
+    )
+    gate = client.evaluations.suites.get_gate("suite_123")
+    assert gate.gate_decision == "passed"
+    assert gate.run_id == "run_123"
+
+
+@respx.mock
+def test_check_gate_returns_resolved_decision(client):
+    respx.post(f"{BASE_URL}/v1/evals/suites/suite_123/gate/check").mock(
+        return_value=httpx.Response(200, json={"success": True, "data": {"gate": {
+            "run_id": "run_456", "run_status": "completed", "gate_decision": "failed",
+            "gate_failure_reasons": ["Pass rate 66.7% is below 80.0%."], "evaluation_outcome": "failed",
+            "mean_score": 2.1, "cases_total": 3, "cases_passed": 2, "timed_out": False,
+        }}})
+    )
+    gate = client.evaluations.suites.check_gate("suite_123", max_wait_seconds=90)
+    assert gate.timed_out is False
+    assert gate.gate_decision == "failed"
+    assert "Pass rate 66.7% is below 80.0%." in gate.gate_failure_reasons
+
+
+@respx.mock
+def test_check_gate_reports_timed_out(client):
+    respx.post(f"{BASE_URL}/v1/evals/suites/suite_123/gate/check").mock(
+        return_value=httpx.Response(202, json={"success": True, "data": {"gate": {
+            "run_id": "run_timeout", "run_status": "running", "gate_decision": "not_configured",
+            "gate_failure_reasons": [], "evaluation_outcome": None, "mean_score": None,
+            "cases_total": 3, "cases_passed": 1, "timed_out": True,
+        }}})
+    )
+    gate = client.evaluations.suites.check_gate("suite_123", max_wait_seconds=1)
+    assert gate.timed_out is True
+    assert gate.run_id == "run_timeout"
+
+
+@respx.mock
 def test_review_create_and_delete(client):
     respx.post(f"{BASE_URL}/v1/evals/results/result_1/reviews").mock(
         return_value=httpx.Response(201, json={"success": True, "data": {"review": {

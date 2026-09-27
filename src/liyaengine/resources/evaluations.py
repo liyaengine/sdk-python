@@ -181,6 +181,61 @@ class EvalRun:
 
 
 @dataclass(frozen=True)
+class EvalGateStatus:
+    """The latest finished run's gate result for one suite — see EvalSuitesResource.get_gate()."""
+
+    suite_id: str
+    # False when the suite has no gate_policy at all.
+    gate_configured: bool
+    # None if the suite has never finished a run.
+    run_id: Optional[str]
+    run_status: Optional[str]
+    gate_decision: str
+    gate_failure_reasons: List[str]
+    evaluation_outcome: Optional[str]
+    mean_score: Optional[float]
+    cases_total: Optional[int]
+    cases_passed: Optional[int]
+    completed_at: Optional[str]
+
+    @classmethod
+    def _from_dict(cls, data: Dict[str, Any]) -> "EvalGateStatus":
+        return cls(
+            suite_id=data["suite_id"], gate_configured=data["gate_configured"],
+            run_id=data.get("run_id"), run_status=data.get("run_status"),
+            gate_decision=data["gate_decision"], gate_failure_reasons=data.get("gate_failure_reasons") or [],
+            evaluation_outcome=data.get("evaluation_outcome"), mean_score=data.get("mean_score"),
+            cases_total=data.get("cases_total"), cases_passed=data.get("cases_passed"),
+            completed_at=data.get("completed_at"),
+        )
+
+
+@dataclass(frozen=True)
+class EvalGateCheckResult:
+    """The result of a synchronous run-and-await gate check — see EvalSuitesResource.check_gate()."""
+
+    run_id: str
+    run_status: str
+    gate_decision: str
+    gate_failure_reasons: List[str]
+    evaluation_outcome: Optional[str]
+    mean_score: Optional[float]
+    cases_total: int
+    cases_passed: int
+    # True when max_wait_seconds elapsed before the run finished — poll runs.get(run_id) from here.
+    timed_out: bool
+
+    @classmethod
+    def _from_dict(cls, data: Dict[str, Any]) -> "EvalGateCheckResult":
+        return cls(
+            run_id=data["run_id"], run_status=data["run_status"], gate_decision=data["gate_decision"],
+            gate_failure_reasons=data.get("gate_failure_reasons") or [],
+            evaluation_outcome=data.get("evaluation_outcome"), mean_score=data.get("mean_score"),
+            cases_total=data["cases_total"], cases_passed=data["cases_passed"], timed_out=data["timed_out"],
+        )
+
+
+@dataclass(frozen=True)
 class EvalReview:
     """A human reviewer's verdict on one case result's judge score, independent of who triggered the run."""
 
@@ -376,6 +431,31 @@ class EvalSuitesResource:
         """Creates two ordinary runs against different force_model overrides — compare afterward via runs.compare()/compare_pairwise()."""
         data = self._http.post(f"/v1/evals/suites/{quote(id)}/compare-models", {"model_a": model_a, "model_b": model_b})
         return {"run_a": EvalRun._from_dict(data["run_a"]), "run_b": EvalRun._from_dict(data["run_b"])}
+
+    def get_gate(self, id: str) -> EvalGateStatus:
+        """Reads the latest finished run's gate result — never triggers a run. For a synchronous test-and-gate call, use check_gate()."""
+        data = self._http.get(f"/v1/evals/suites/{quote(id)}/gate")
+        return EvalGateStatus._from_dict(data["gate"])
+
+    def check_gate(self, id: str, *, model: Optional[str] = None, max_wait_seconds: int = 60) -> EvalGateCheckResult:
+        """The CI-facing release gate: triggers a real run of this suite (same execution path as run() — same
+        budget gating, audit logging, evidence capture) and blocks until the gate resolves, so a pipeline step
+        gets a synchronous pass/fail instead of hand-rolling run+poll logic.
+
+        A suite with no gate_policy always resolves with gate_decision "not_configured" — configure one via
+        update() first, or this call will never block a pipeline on its own.
+
+        If max_wait_seconds elapses first, resolves with timed_out=True and a run_id — poll runs.get(run_id)
+        from there rather than calling this again (that starts a second run).
+        """
+        wait_seconds = min(max(max_wait_seconds, 1), 280)
+        body: Dict[str, Any] = {"max_wait_seconds": wait_seconds}
+        if model is not None:
+            body["model"] = model
+        # A few seconds of slack over the server's own bound so the client
+        # timeout never fires a beat before the server would have responded.
+        data = self._http.post_long_running(f"/v1/evals/suites/{quote(id)}/gate/check", body, wait_seconds + 10)
+        return EvalGateCheckResult._from_dict(data["gate"])
 
 
 class EvalReviewsResource:

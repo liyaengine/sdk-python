@@ -297,6 +297,33 @@ scored = client.evaluations.score(
 
 > `custom_scorer_webhook_secret` on a Suite is write-only — it's never returned; only a `custom_scorer_webhook_secret_set` boolean comes back on reads.
 
+### Release gate — the CI-facing endpoint
+
+A suite can carry a `gate_policy` — thresholds a run must clear (pass rate, mean score, or a plain pass/fail outcome). `check_gate()` is the call a CI pipeline step actually wants: it triggers a real run and blocks until the gate resolves, so you get a synchronous pass/fail instead of hand-rolling run-then-poll logic yourself.
+
+```python
+client.evaluations.suites.update(
+    suite.id,
+    gate_policy={"schema_version": 1, "require_passed_outcome": True, "min_pass_rate": 0.8},
+)
+
+# Blocks (default up to 60s, capped at 280s) until the gate resolves.
+gate = client.evaluations.suites.check_gate(suite.id, max_wait_seconds=90)
+
+if gate.timed_out:
+    # Took longer than max_wait_seconds — poll runs.get(gate.run_id) yourself from here,
+    # don't call check_gate() again (that starts a second run).
+    pass
+elif gate.gate_decision == "failed":
+    print("Release blocked:", gate.gate_failure_reasons)
+    sys.exit(1)
+
+# A cheap read of the last finished run's result, without triggering a new one.
+status = client.evaluations.suites.get_gate(suite.id)
+```
+
+A suite with no `gate_policy` always resolves `gate_decision: "not_configured"` — it never blocks a pipeline on its own until you set one.
+
 ## Guardrail Policies
 
 The tenant-configurable safety config that replaces a single hardcoded, global pipeline every tenant used to share identically — PII detection, content policy, schema/action validation, and hallucination checks, all tunable per policy. Every tenant always has exactly one `is_default` policy; a domain/intent/agent/action with no policy attached falls through to it.
@@ -398,7 +425,7 @@ LiyaEngine(
 - [x] Collections
 - [x] Agents (full CRUD, deploy, run, run/session history, real-time step streaming via `run_stream()`)
 - [x] Workflows (full CRUD, toggle, deploy, webhook secret rotate, run, run history, real-time step streaming via `run_stream()`)
-- [x] Evaluations (Datasets/Cases/Suites/Runs/Reviews CRUD, suite execution, cancel/resume, statistical + pairwise compare, standalone scoring)
+- [x] Evaluations (Datasets/Cases/Suites/Runs/Reviews CRUD, suite execution, cancel/resume, statistical + pairwise compare, standalone scoring, CI-facing release gate)
 - [x] Full KBaaS (document list/get/delete/upload/push, async ingestion jobs + URL crawl, collection↔document/domain attach-detach, analytics/connections)
 - [x] Run / Run (streaming) — built-in packs only for streaming; custom domains use non-streaming `run()`
 - [x] Domain agentic tool configuration (previously dashboard-only)
