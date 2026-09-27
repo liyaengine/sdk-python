@@ -106,6 +106,8 @@ class EvalSuite:
     # The webhook secret itself is never returned after initial submission — only whether one is set.
     custom_scorer_webhook_secret_set: bool
     baseline_run_id: Optional[str]
+    # None means no gate is configured — every run of this suite reports gate_decision "not_configured".
+    gate_policy: Optional[Dict[str, Any]]
     created_at: str
     updated_at: str
 
@@ -119,6 +121,7 @@ class EvalSuite:
             custom_scorer_webhook_url=data.get("custom_scorer_webhook_url"),
             custom_scorer_webhook_secret_set=data.get("custom_scorer_webhook_secret_set", False),
             baseline_run_id=data.get("baseline_run_id"),
+            gate_policy=data.get("gate_policy"),
             created_at=data["created_at"], updated_at=data["updated_at"],
         )
 
@@ -151,6 +154,12 @@ class EvalRun:
     judge_failures: Optional[int]
     judge_cap_reached: bool
     model_override: Optional[str]
+    # Aggregate across every case result — distinct from gate_decision, which also weighs the suite's own thresholds.
+    evaluation_outcome: Optional[str] = None
+    # "not_configured" when the suite has no gate_policy — every run of that suite reports this until one is set.
+    gate_decision: Optional[str] = None
+    # Populated only when gate_decision is "failed" — one entry per threshold the run missed.
+    gate_failure_reasons: Optional[List[str]] = None
 
     @classmethod
     def _from_dict(cls, data: Dict[str, Any]) -> "EvalRun":
@@ -165,6 +174,9 @@ class EvalRun:
             judge_model=data.get("judge_model"), judge_calls=data.get("judge_calls"),
             judge_failures=data.get("judge_failures"), judge_cap_reached=data.get("judge_cap_reached", False),
             model_override=data.get("model_override"),
+            evaluation_outcome=data.get("evaluation_outcome"),
+            gate_decision=data.get("gate_decision"),
+            gate_failure_reasons=data.get("gate_failure_reasons"),
         )
 
 
@@ -303,12 +315,19 @@ class EvalSuitesResource:
         self, *, name: str, domain_key: str, intent_key: str, dataset_id: str,
         custom_scorer_expression: Optional[str] = None, custom_scorer_label: Optional[str] = None,
         custom_scorer_webhook_url: Optional[str] = None, custom_scorer_webhook_secret: Optional[str] = None,
+        gate_policy: Optional[Dict[str, Any]] = None,
     ) -> EvalSuite:
-        """A suite has at most one custom scorer — either an expression or a webhook, not both."""
+        """A suite has at most one custom scorer — either an expression or a webhook, not both.
+
+        gate_policy: e.g. {"schema_version": 1, "require_passed_outcome": True, "min_pass_rate": 0.8}
+        — blocks promotion when a run's aggregate outcome/pass-rate/mean-score misses a threshold.
+        See EvalRun.gate_decision on the runs this suite produces.
+        """
         body: Dict[str, Any] = {"name": name, "domain_key": domain_key, "intent_key": intent_key, "dataset_id": dataset_id}
         optional = {
             "custom_scorer_expression": custom_scorer_expression, "custom_scorer_label": custom_scorer_label,
             "custom_scorer_webhook_url": custom_scorer_webhook_url, "custom_scorer_webhook_secret": custom_scorer_webhook_secret,
+            "gate_policy": gate_policy,
         }
         body.update({k: v for k, v in optional.items() if v is not None})
         data = self._http.post("/v1/evals/suites", body)
@@ -318,13 +337,14 @@ class EvalSuitesResource:
         self, id: str, *, name: Optional[str] = None, dataset_id: Optional[str] = None,
         custom_scorer_expression: Optional[str] = None, custom_scorer_label: Optional[str] = None,
         custom_scorer_webhook_url: Optional[str] = None, custom_scorer_webhook_secret: Optional[str] = None,
+        gate_policy: Optional[Dict[str, Any]] = None,
     ) -> EvalSuite:
         """Does not allow changing domain_key/intent_key — that changes what the suite tests, which should be a new suite."""
         body: Dict[str, Any] = {}
         optional = {
             "name": name, "dataset_id": dataset_id, "custom_scorer_expression": custom_scorer_expression,
             "custom_scorer_label": custom_scorer_label, "custom_scorer_webhook_url": custom_scorer_webhook_url,
-            "custom_scorer_webhook_secret": custom_scorer_webhook_secret,
+            "custom_scorer_webhook_secret": custom_scorer_webhook_secret, "gate_policy": gate_policy,
         }
         body.update({k: v for k, v in optional.items() if v is not None})
         data = self._http.patch(f"/v1/evals/suites/{quote(id)}", body)
