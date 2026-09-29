@@ -135,9 +135,13 @@ for event in client.intents.stream(domain="billing", intent="refund-status", mes
 ```python
 client.collections.list()
 client.collections.get(id)
-client.collections.create(slug=..., label=..., domain_keys=[...])
+client.collections.create(slug=..., label=...)  # omit domain_keys (or pass []) for a general (domain-less) collection
 client.collections.update(id, label=..., tags=[...], visibility=...)
 client.collections.delete(id)
+
+# Direct retrieval — no Domain, Intent, or Agent needed at all. Omit
+# collection_ids to search every general collection the tenant owns.
+result = client.collections.query(query="PTO policy", top_k=5)
 
 # Reference documents into a collection — never copies them, never touches embeddings.
 client.collections.documents.attach(collection_id, document_id)

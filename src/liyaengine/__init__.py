@@ -1,7 +1,7 @@
 from .client import LiyaEngine
 from .errors import LiyaEngineAPIError, LiyaEngineNetworkError
 from .resources.agents import Agent, AgentStep, AgentRunStreamEvent
-from .resources.collections import Collection, CollectionDocumentSummary
+from .resources.collections import Collection, CollectionDocumentSummary, KnowledgeChunk, QueryCollectionsResult
 from .resources.workflows import Workflow, WorkflowStepTrace, WorkflowRunStreamEvent
 from .resources.evaluations import EvalDataset, EvalCase, EvalSuite, EvalRun, EvalReview, EvalGateStatus, EvalGateCheckResult
 from .resources.domains import Domain, Intent, DomainSource, IntentVersionSummary
@@ -20,6 +20,8 @@ __all__ = [
     "LiyaEngineNetworkError",
     "Collection",
     "CollectionDocumentSummary",
+    "KnowledgeChunk",
+    "QueryCollectionsResult",
     "Agent",
     "AgentStep",
     "AgentRunStreamEvent",

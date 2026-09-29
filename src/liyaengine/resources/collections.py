@@ -44,6 +44,26 @@ class Collection:
         )
 
 
+@dataclass(frozen=True)
+class KnowledgeChunk:
+    source_type: str
+    content_text: str
+    metadata: Dict[str, Any]
+    similarity: float
+    """Cosine similarity, 0-1. min_similarity is applied as a hard filter server-side (default 0.5) — every result returned already cleared that bar."""
+    source_id: Optional[str] = None
+
+    @classmethod
+    def _from_dict(cls, data: Dict[str, Any]) -> "KnowledgeChunk":
+        return cls(
+            source_type=data["source_type"],
+            source_id=data.get("source_id"),
+            content_text=data["content_text"],
+            metadata=data.get("metadata", {}),
+            similarity=data["similarity"],
+        )
+
+
 class CollectionDomainsResource:
     def __init__(self, http: HttpClient) -> None:
         self._http = http
@@ -125,14 +145,19 @@ class CollectionsResource:
         *,
         slug: str,
         label: str,
-        domain_keys: List[str],
+        domain_keys: Optional[List[str]] = None,
         color: Optional[str] = None,
         default_embedding_model: Optional[str] = None,
         default_chunking_strategy: Optional[str] = None,
         default_chunk_size: Optional[int] = None,
         default_chunk_overlap: Optional[int] = None,
     ) -> Collection:
-        body: Dict[str, Any] = {"slug": slug, "label": label, "domain_keys": domain_keys}
+        """domain_keys omitted or empty creates a "general" collection — not
+        owned by any domain, queryable tenant-wide via query() rather than
+        attached to a specific domain's retrieval. Still attachable to
+        specific domains afterward via .domains.attach().
+        """
+        body: Dict[str, Any] = {"slug": slug, "label": label, "domain_keys": domain_keys or []}
         if color is not None:
             body["color"] = color
         if default_embedding_model is not None:
@@ -197,3 +222,36 @@ class CollectionsResource:
         link, direct or indirect, exists in the schema; a real answer, not a stub).
         """
         return cast(Dict[str, Any], self._http.get(f"/v1/collections/{quote(id)}/connections"))
+
+    def query(
+        self,
+        *,
+        query: str,
+        collection_ids: Optional[List[str]] = None,
+        top_k: Optional[int] = None,
+    ) -> "QueryCollectionsResult":
+        """Direct retrieval — no Domain, Intent, or Agent involved at all.
+        Pass collection_ids to search specific collections, or omit it to
+        search every general collection the tenant owns. Subject to the
+        account's monthly KBaaS query quota, same as a domain's own query().
+        """
+        body: Dict[str, Any] = {"query": query}
+        if collection_ids is not None:
+            body["collection_ids"] = collection_ids
+        if top_k is not None:
+            body["top_k"] = top_k
+        data = self._http.post("/v1/collections/query", body)
+        return QueryCollectionsResult._from_dict(cast(Dict[str, Any], data))
+
+
+@dataclass(frozen=True)
+class QueryCollectionsResult:
+    results: List[KnowledgeChunk]
+    total: int
+
+    @classmethod
+    def _from_dict(cls, data: Dict[str, Any]) -> "QueryCollectionsResult":
+        return cls(
+            results=[KnowledgeChunk._from_dict(r) for r in data.get("results", [])],
+            total=data["total"],
+        )

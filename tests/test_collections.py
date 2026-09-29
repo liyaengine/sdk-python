@@ -198,3 +198,54 @@ def test_connections_returns_domains_intents_agents_and_null_workflows(client):
     assert connections["domains"] == [{"domain_key": "legal-ops", "display_name": "Legal Ops"}]
     assert len(connections["agents"]) == 1
     assert connections["workflows"] is None
+
+
+@respx.mock
+def test_query_runs_standalone_retrieval(client):
+    respx.post(f"{BASE_URL}/v1/collections/query").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "success": True,
+                "data": {
+                    "results": [
+                        {
+                            "source_type": "handbook",
+                            "source_id": "doc_123",
+                            "content_text": "PTO accrues at 1.5 days/month.",
+                            "metadata": {},
+                            "similarity": 0.87,
+                        }
+                    ],
+                    "total": 1,
+                },
+            },
+        )
+    )
+    result = client.collections.query(query="PTO policy")
+    assert result.total == 1
+    assert result.results[0].content_text == "PTO accrues at 1.5 days/month."
+    assert result.results[0].similarity == 0.87
+
+
+@respx.mock
+def test_query_raises_typed_400_on_missing_query(client):
+    respx.post(f"{BASE_URL}/v1/collections/query").mock(
+        return_value=httpx.Response(
+            400, json={"success": False, "error": {"code": "INVALID_INPUT", "message": "query is required."}}
+        )
+    )
+    with pytest.raises(LiyaEngineAPIError) as exc_info:
+        client.collections.query(query="")
+    assert exc_info.value.code == "INVALID_INPUT"
+
+
+@respx.mock
+def test_create_allows_omitted_domain_keys_for_a_general_collection(client):
+    respx.post(f"{BASE_URL}/v1/collections").mock(
+        return_value=httpx.Response(
+            201, json={"success": True, "data": {"collection": {**FIXTURE_COLLECTION, "id": "col_new", "domain_keys": []}}}
+        )
+    )
+    collection = client.collections.create(slug="handbook", label="Handbook")
+    assert collection.domain_keys == []
