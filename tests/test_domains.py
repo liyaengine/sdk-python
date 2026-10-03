@@ -262,16 +262,35 @@ def test_intents_stream_yields_frames_in_order(client):
 
 
 @respx.mock
-def test_intents_stream_raises_for_custom_domain_pre_flight_rejection(client):
+def test_intents_stream_custom_domain_yields_sources_tokens_and_structured_done(client):
+    frames = [
+        {"type": "sources", "sources": [{"doc": "playbook", "relevance": 0.81}]},
+        {"type": "token", "delta": '{"overall_risk":'},
+        {"type": "token", "delta": '"high"}'},
+        {"type": "done", "session_id": "sess_4", "latency_ms": 900, "input_tokens": 400, "output_tokens": 9,
+         "cost_usd": 0.002, "served_by": "platform", "stream_mode": "live", "structured": {"overall_risk": "high"}},
+    ]
+    sse_body = "".join(f"data: {json.dumps(f)}\n\n" for f in frames)
+    route = respx.post(f"{BASE_URL}/v1/run/stream").mock(
+        return_value=httpx.Response(200, content=sse_body, headers={"content-type": "text/event-stream"})
+    )
+    events = list(client.intents.stream(domain="legal-ops", intent="review-contract", message="Review this NDA"))
+    assert [e["type"] for e in events] == ["sources", "token", "token", "done"]
+    assert events[-1]["structured"] == {"overall_risk": "high"}
+    assert json.loads(route.calls[0].request.content)["domain"] == "legal-ops"
+
+
+@respx.mock
+def test_intents_stream_raises_for_pre_flight_rejection(client):
     respx.post(f"{BASE_URL}/v1/run/stream").mock(
-        return_value=httpx.Response(400, json={
+        return_value=httpx.Response(403, json={
             "success": False,
-            "error": {"code": "STREAMING_NOT_SUPPORTED", "message": "Streaming is only supported for built-in packs today."},
+            "error": {"code": "FEATURE_NOT_ENABLED", "message": "Custom domain packs are not available on your current plan."},
         })
     )
     with pytest.raises(LiyaEngineAPIError) as exc_info:
         list(client.intents.stream(domain="legal-ops", intent="review-contract"))
-    assert exc_info.value.code == "STREAMING_NOT_SUPPORTED"
+    assert exc_info.value.code == "FEATURE_NOT_ENABLED"
 
 
 FIXTURE_MASKED_TOOL = {

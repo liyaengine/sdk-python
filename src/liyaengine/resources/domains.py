@@ -437,12 +437,18 @@ class IntentsResource:
         """Same request shape as run(), delivered as a token-by-token stream
         instead of one response — iterate with a for loop.
 
-        Built-in packs only (chat, hiring, fintech, healthcare, ehs,
-        compliance). A custom-domain intent raises a LiyaEngineAPIError
-        (STREAMING_NOT_SUPPORTED) immediately, before the stream opens — use
-        run() for those. Once the stream *has* opened, every other failure
-        (quota, provider error) arrives as an in-band {"type": "error"}
-        event, not a raised error — always check event["type"] in your loop.
+        Works for built-in packs and custom-domain intents. A custom-domain
+        stream sends a {"type": "sources"} event before the first token when
+        retrieval ran, and its done event carries structured, confidence,
+        blocked and stream_mode. When the intent's guardrail policy needs the
+        whole answer before release (grounding block, structured-output
+        retry), the answer arrives as one token event and
+        done["stream_mode"] is "buffered".
+
+        Pre-flight rejections (feature not enabled, quota) raise a
+        LiyaEngineAPIError before any event. Once the stream *has* opened,
+        every other failure arrives as an in-band {"type": "error"} event,
+        not a raised error — always check event["type"] in your loop.
         """
         body = _translate_run_input(
             intent=intent, domain=domain, pack=pack, input=input, message=message,

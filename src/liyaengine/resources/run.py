@@ -6,7 +6,20 @@ pairing with its list_all() catalog: list what you can run, then run it.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Literal, Optional, TypedDict, Union
+from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
+
+
+class RunStreamSource(TypedDict, total=False):
+    doc: str
+    section: str
+    relevance: float
+    url: str
+
+
+class RunSourcesEvent(TypedDict):
+    """Custom-domain intents only: the retrieved evidence, sent once before the first token."""
+    type: Literal["sources"]
+    sources: List[RunStreamSource]
 
 
 class RunTokenEvent(TypedDict):
@@ -14,7 +27,7 @@ class RunTokenEvent(TypedDict):
     delta: str
 
 
-class RunDoneEvent(TypedDict):
+class _RunDoneRequired(TypedDict):
     type: Literal["done"]
     session_id: str
     latency_ms: int
@@ -24,12 +37,35 @@ class RunDoneEvent(TypedDict):
     served_by: Literal["platform", "byok"]
 
 
-class RunErrorEvent(TypedDict):
+class RunDoneEvent(_RunDoneRequired, total=False):
+    """The optional keys below are set for custom-domain intents only.
+
+    stream_mode is "live" when tokens arrived as generated, or "buffered"
+    when the whole answer arrived as one token event (stream_buffer_reason
+    says why, e.g. a grounding block policy). blocked is set when that
+    policy replaced the answer with its fallback message.
+    """
+    request_id: str
+    status: Literal["success", "partial", "error"]
+    model: str
+    stream_mode: Literal["live", "buffered"]
+    stream_buffer_reason: str
+    structured: Dict[str, Any]
+    confidence: float
+    blocked: Dict[str, Any]
+    escalation: Dict[str, Any]
+
+
+class _RunErrorRequired(TypedDict):
     type: Literal["error"]
     message: str
 
 
-RunStreamEvent = Union[RunTokenEvent, RunDoneEvent, RunErrorEvent]
+class RunErrorEvent(_RunErrorRequired, total=False):
+    code: str
+
+
+RunStreamEvent = Union[RunSourcesEvent, RunTokenEvent, RunDoneEvent, RunErrorEvent]
 
 
 @dataclass(frozen=True)

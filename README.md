@@ -128,7 +128,7 @@ for event in client.intents.stream(domain="billing", intent="refund-status", mes
         raise RuntimeError(event["message"])
 ```
 
-> **Streaming is built-in-packs only** (`chat`, `hiring`, `fintech`, `healthcare`, `ehs`, `compliance`) — a custom-domain intent raises a `LiyaEngineAPIError` (`STREAMING_NOT_SUPPORTED`) immediately, before the stream opens; use `run()` instead for those. Once a stream *has* opened, every other failure (quota exceeded, provider error) arrives as an in-band `{"type": "error"}` event, not a raised error — always check `event["type"]` in your loop, not just try/except. Neither method defaults `domain` sensibly if you omit both `domain` and `pack` — it falls back to `"hiring"`, a historical default carried over from the API itself — pass one explicitly.
+> **Streaming works for built-in packs and custom-domain intents.** A custom-domain stream sends a `{"type": "sources"}` event before the first token when retrieval ran, and its `done` event carries `structured`, `confidence`, `blocked` and `stream_mode`. If the intent's guardrail policy needs the whole answer before release (grounding block, structured-output retry), the answer arrives as one `token` event with `done["stream_mode"] == "buffered"`. Pre-flight rejections (feature not enabled, quota) raise a `LiyaEngineAPIError` before any event; once a stream *has* opened, every other failure arrives as an in-band `{"type": "error"}` event, not a raised error — always check `event["type"]` in your loop, not just try/except. Neither method defaults `domain` sensibly if you omit both `domain` and `pack` — it falls back to `"hiring"`, a historical default carried over from the API itself — pass one explicitly.
 
 ## Collections
 
@@ -440,7 +440,7 @@ LiyaEngine(
 - [x] Workflows (full CRUD, toggle, deploy, webhook secret rotate, run, run history, real-time step streaming via `run_stream()`)
 - [x] Evaluations (Datasets/Cases/Suites/Runs/Reviews CRUD, suite execution, cancel/resume, statistical + pairwise compare, standalone scoring, CI-facing release gate)
 - [x] Full KBaaS (document list/get/delete/upload/push, async ingestion jobs + URL crawl, collection↔document/domain attach-detach, analytics/connections)
-- [x] Run / Run (streaming) — built-in packs only for streaming; custom domains use non-streaming `run()`
+- [x] Run / Run (streaming) — built-in packs and custom-domain intents
 - [x] Domain agentic tool configuration (previously dashboard-only)
 - [x] Guardrail Policies (full CRUD, attach/detach, live test console, versioning, analytics — previously dashboard-only)
 - [x] Flagged-chunk review (read/resolve — the corrections that cause a flag are dashboard-only, product-internal logic)
