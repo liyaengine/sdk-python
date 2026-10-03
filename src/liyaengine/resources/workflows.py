@@ -31,9 +31,10 @@ class WorkflowRunDoneEvent(TypedDict, total=False):
     type: Literal["done"]
     run_id: str
     conversation_id: str
-    status: Literal["completed", "needs_input", "failed"]
+    status: Literal["completed", "needs_input", "failed", "awaiting_approval", "rejected"]
     trace: List[Any]
     missing_parameter: Dict[str, Any]
+    approval_id: str
 
 
 class WorkflowRunErrorEvent(TypedDict):
@@ -59,6 +60,10 @@ class Workflow:
     created_at: str
     updated_at: str
     steps: List[Dict[str, Any]]
+    #: Schedule/event dispatch state — None unless active with a valid schedule or event trigger.
+    schedule_next_run_at: Optional[str] = None
+    schedule_last_run_at: Optional[str] = None
+    event_type: Optional[str] = None
 
     @classmethod
     def _from_dict(cls, data: Dict[str, Any]) -> "Workflow":
@@ -75,12 +80,46 @@ class Workflow:
             created_at=data["created_at"],
             updated_at=data["updated_at"],
             steps=data.get("steps", []),
+            schedule_next_run_at=data.get("schedule_next_run_at"),
+            schedule_last_run_at=data.get("schedule_last_run_at"),
+            event_type=data.get("event_type"),
         )
 
 
 def _query(**params: Any) -> str:
     pairs = {k: v for k, v in params.items() if v is not None}
     return f"?{urlencode(pairs)}" if pairs else ""
+
+
+class WorkflowApprovalsResource:
+    """Human approval steps. A run that reaches an approval step pauses with
+    status "awaiting_approval"; deciding resumes it down the approved or
+    rejected branch. Use this to put approvals in Slack, Teams, email or your
+    own app — pass decided_by so the audit trail names the person.
+    """
+
+    def __init__(self, http: HttpClient) -> None:
+        self._http = http
+
+    def list(self, *, status: Optional[str] = None, workflow_id: Optional[str] = None, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        qs = _query(status=status, workflow_id=workflow_id, limit=limit)
+        return cast(List[Dict[str, Any]], self._http.get(f"/v1/workflows/approvals{qs}"))
+
+    def get(self, approval_id: str) -> Dict[str, Any]:
+        return cast(Dict[str, Any], self._http.get(f"/v1/workflows/approvals/{quote(approval_id)}"))
+
+    def decide(
+        self, approval_id: str, *, decision: Literal["approve", "reject"], note: Optional[str] = None, decided_by: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Returns {"approval": ..., "run": {"run_id", "status", ...}}. The run can be
+        "awaiting_approval" again if the workflow has a second approval step.
+        Raises APPROVAL_ALREADY_DECIDED (409) if someone else decided first."""
+        body: Dict[str, Any] = {"decision": decision}
+        if note is not None:
+            body["note"] = note
+        if decided_by is not None:
+            body["decided_by"] = decided_by
+        return cast(Dict[str, Any], self._http.post(f"/v1/workflows/approvals/{quote(approval_id)}/decision", body))
 
 
 class WorkflowsResource:
@@ -93,6 +132,15 @@ class WorkflowsResource:
 
     def __init__(self, http: HttpClient) -> None:
         self._http = http
+        self.approvals = WorkflowApprovalsResource(http)
+
+    def trigger_catalog(self) -> Dict[str, Any]:
+        """Event types (with allowed filters) and schedule rules a trigger step can use.
+
+        Schedule: trigger step config {"trigger_subtype": "schedule", "cron", "timezone", "input"}.
+        Event:    {"trigger_subtype": "event", "event_type", "filter"}.
+        """
+        return cast(Dict[str, Any], self._http.get("/v1/workflows/trigger-catalog"))
 
     def list(self) -> List[Workflow]:
         data = self._http.get("/v1/workflows")

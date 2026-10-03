@@ -188,3 +188,56 @@ def test_run_stream_raises_for_pre_flight_rejection(client):
     with pytest.raises(LiyaEngineAPIError) as exc_info:
         list(client.workflows.run_stream("ghost-wf"))
     assert exc_info.value.code == "WORKFLOW_NOT_FOUND"
+
+
+FIXTURE_APPROVAL = {
+    "id": "appr_1", "workflow_id": "wf_1", "workflow_name": "Refunds", "workflow_key": "refunds", "run_id": "run_1",
+    "step_id": "step_2", "status": "pending", "title": "Refund 120", "summary": None, "context": None,
+    "assignee_role": None, "assignee_user_ids": [], "timeout_action": "reject", "expires_at": None,
+    "decided_by": None, "decided_by_type": None, "decided_at": None, "decision_note": None, "created_at": "2026-10-03T00:00:00.000Z",
+}
+
+
+@respx.mock
+def test_approvals_list_passes_filters(client):
+    route = respx.get(f"{BASE_URL}/v1/workflows/approvals").mock(
+        return_value=httpx.Response(200, json={"success": True, "data": [FIXTURE_APPROVAL]})
+    )
+    rows = client.workflows.approvals.list(status="pending", workflow_id="wf_1")
+    assert rows[0]["title"] == "Refund 120"
+    assert route.calls[0].request.url.params["status"] == "pending"
+    assert route.calls[0].request.url.params["workflow_id"] == "wf_1"
+
+
+@respx.mock
+def test_approvals_decide_sends_decision_and_returns_run(client):
+    route = respx.post(f"{BASE_URL}/v1/workflows/approvals/appr_1/decision").mock(
+        return_value=httpx.Response(200, json={"success": True, "data": {
+            "approval": {**FIXTURE_APPROVAL, "status": "approved"}, "run": {"run_id": "run_1", "status": "completed"},
+        }})
+    )
+    result = client.workflows.approvals.decide("appr_1", decision="approve", note="ok", decided_by="jane@acme.com")
+    assert json.loads(route.calls[0].request.content) == {"decision": "approve", "note": "ok", "decided_by": "jane@acme.com"}
+    assert result["run"] == {"run_id": "run_1", "status": "completed"}
+
+
+@respx.mock
+def test_approvals_decide_raises_when_already_decided(client):
+    respx.post(f"{BASE_URL}/v1/workflows/approvals/appr_1/decision").mock(
+        return_value=httpx.Response(409, json={"success": False, "error": {"code": "APPROVAL_ALREADY_DECIDED", "message": "already approved"}})
+    )
+    with pytest.raises(LiyaEngineAPIError) as exc_info:
+        client.workflows.approvals.decide("appr_1", decision="reject")
+    assert exc_info.value.code == "APPROVAL_ALREADY_DECIDED"
+
+
+@respx.mock
+def test_trigger_catalog(client):
+    respx.get(f"{BASE_URL}/v1/workflows/trigger-catalog").mock(
+        return_value=httpx.Response(200, json={"success": True, "data": {
+            "schedule": {"format": "5-field cron", "min_interval_minutes": 5, "timezone": "IANA", "run_input": "config.input"},
+            "events": [{"event_type": "document.ingested", "description": "x", "filters": ["collection_id", "domain_key"]}],
+        }})
+    )
+    catalog = client.workflows.trigger_catalog()
+    assert catalog["events"][0]["event_type"] == "document.ingested"

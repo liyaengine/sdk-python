@@ -277,6 +277,40 @@ for event in client.workflows.run_stream(workflow.workflow_key, input={"email": 
 
 > `deploy()` and `rotate_webhook_secret()` return the plaintext webhook secret exactly once. Store it immediately — subsequent reads (`get`, `list`) only ever expose `trigger_config["has_secret"]`.
 
+### Scheduled and event triggers
+
+```python
+# Every weekday at 07:00 Chicago time, with static input for each run.
+client.workflows.create(name="Daily regulatory digest", steps=[
+    {"step_type": "trigger", "config": {"trigger_subtype": "schedule", "cron": "0 7 * * 1-5", "timezone": "America/Chicago", "input": {"region": "US"}}},
+    # ...
+])
+
+# Whenever a document lands in a collection.
+client.workflows.create(name="Map new regulation to policies", steps=[
+    {"step_type": "trigger", "config": {"trigger_subtype": "event", "event_type": "document.ingested", "filter": {"collection_id": "col_123"}}},
+    # ...
+])
+
+catalog = client.workflows.trigger_catalog()  # event types + allowed filters
+```
+
+Schedules start when the workflow is deployed and run at most every 5 minutes; missed slots during downtime aren't replayed. Event payload fields reach steps as `{{trigger.*}}`, plus `{{trigger.event_id}}` for de-duplicating actions. A workflow never receives its own `workflow.*` events, and event chains stop after 3 hops.
+
+### Approval steps
+
+An `approval` step pauses the run (`status == "awaiting_approval"`, with `approval_id`) until someone decides. Approve continues down the step's success branch; reject follows its failure branch, or ends the run as `"rejected"`.
+
+```python
+run = client.workflows.run("refunds", input={"order_id": "1042", "amount": 120})
+if run["status"] == "awaiting_approval":
+    # e.g. from a Slack button handler — decided_by names the person in the audit log
+    result = client.workflows.approvals.decide(run["approval_id"], decision="approve", note="Within policy", decided_by="jane@acme.com")
+    print(result["run"]["status"])  # "completed", or "awaiting_approval" for a second approval step
+
+waiting = client.workflows.approvals.list(status="pending")
+```
+
 ## Evaluations
 
 A Suite binds a Dataset to one specific intent; `suites.run()` calls that intent for real and scores what it produces. `runs.submit()`/`evaluations.score()` score a response you already generated yourself — no intent execution involved.
@@ -437,7 +471,7 @@ LiyaEngine(
 - [x] Domains & Intents (full CRUD parity with the dashboard, prompt binding, agent/execution/retrieval/cache config, versioning, direct retrieval query, narrow document upload — guardrail policy attachment via `guardrail_policies.attach()`)
 - [x] Collections
 - [x] Agents (full CRUD, deploy, run, run/session history, real-time step streaming via `run_stream()`)
-- [x] Workflows (full CRUD, toggle, deploy, webhook secret rotate, run, run history, real-time step streaming via `run_stream()`)
+- [x] Workflows (full CRUD, toggle, deploy, webhook secret rotate, run, run history, real-time step streaming via `run_stream()`, schedule and event triggers, approval steps)
 - [x] Evaluations (Datasets/Cases/Suites/Runs/Reviews CRUD, suite execution, cancel/resume, statistical + pairwise compare, standalone scoring, CI-facing release gate)
 - [x] Full KBaaS (document list/get/delete/upload/push, async ingestion jobs + URL crawl, collection↔document/domain attach-detach, analytics/connections)
 - [x] Run / Run (streaming) — built-in packs and custom-domain intents
