@@ -11,6 +11,7 @@ from .resources.workflows import WorkflowsResource
 from .resources.evaluations import EvaluationsResource
 from .resources.domains import DomainsResource, IntentsResource
 from .resources.documents import DocumentsResource
+from .resources.files import FilesResource
 from .resources.guardrail_policies import GuardrailPoliciesResource
 from .resources.prompts import PromptsResource
 
@@ -52,6 +53,7 @@ class LiyaEngine:
         self.domains = DomainsResource(self._http)
         self.intents = IntentsResource(self._http)
         self.documents = DocumentsResource(self._http)
+        self.files = FilesResource(self._http)
         self.guardrail_policies = GuardrailPoliciesResource(self._http)
         self.prompts = PromptsResource(self._http)
 

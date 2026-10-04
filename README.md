@@ -200,6 +200,18 @@ client.documents.jobs.cancel(job["jobId"])
 
 > Cancellation is cooperative (checked between page fetches / chunk embeds), not instant, and there is no crash-recovery sweep — if the process running a job restarts mid-run, the job is left "running" indefinitely rather than auto-retried. Poll `get(job_id)` for terminal status; don't assume `cancel()` stops it immediately.
 
+### Read a file without storing it
+
+```python
+import base64
+
+# Same parser as document uploads; images and scanned PDF pages are
+# transcribed through your model routing on paid plans. Nothing is stored.
+with open("acord-125.pdf", "rb") as f:
+    parsed = client.files.parse(file_name="acord-125.pdf", file_base64=base64.b64encode(f.read()).decode())
+# parsed.text, parsed.pages, parsed.warnings, parsed.transcribed_pages
+```
+
 ### Flagged chunks
 
 A chunk that accumulates enough human corrections (a support agent repeatedly overriding an AI answer that cited it) gets flagged for review — content worth updating or removing. Read/resolve only; whatever caused the flag is product-internal logic with no SDK surface.
@@ -276,6 +288,19 @@ for event in client.workflows.run_stream(workflow.workflow_key, input={"email": 
 ```
 
 > `deploy()` and `rotate_webhook_secret()` return the plaintext webhook secret exactly once. Store it immediately — subsequent reads (`get`, `list`) only ever expose `trigger_config["has_secret"]`.
+
+### Files in a run
+
+```python
+# Up to 10 files, 18 MB per run. The API reads each one before the run
+# starts and adds attachment_texts and attachments_text to the run input,
+# so an intent step can map {{trigger.attachments_text}}. The bytes are
+# never stored.
+client.workflows.run("submission-triage", input={
+    "email_text": "Please quote the attached risk.",
+    "attachments": [{"file_name": "acord-125.pdf", "file_base64": pdf_base64}],
+})
+```
 
 ### Scheduled and event triggers
 
