@@ -413,6 +413,11 @@ class IntentsResource:
         `domain` defaults to 'hiring' if neither this nor `pack` is given —
         a historical default carried over from the API itself, not a
         recommendation. Pass one explicitly.
+
+        With an API key, `input` must include `user_id`: any string that
+        identifies your end user, for example `input={"user_id": "user_001", ...}`.
+        A call without it is rejected with INVALID_INPUT. `input["user"]["id"]`
+        also works.
         """
         body = _translate_run_input(
             intent=intent, domain=domain, pack=pack, input=input, message=message,
