@@ -123,6 +123,67 @@ class AgentsResource:
         data = self._http.get("/v1/agents")
         return cast(List[Dict[str, Any]], data["agents"])
 
+    def regressions(self, *, days: Optional[int] = None) -> Dict[str, Any]:
+        """Agents whose live version fails clearly more often than the version before it, counted from runs. No model is
+        called and nothing is billed. Failure means the run stopped (a limit, an error, a block), not that an answer was
+        wrong. A gap is a lead, never proof. Nothing is applied: each item's `restore` names the existing restore call, which
+        stages the older version as the draft, and `changes` lists everything rolling back would undo. `days` is 7 to 90 (default 30)."""
+        suffix = f"?{urlencode({'days': days})}" if days is not None else ""
+        return cast(Dict[str, Any], self._http.get(f"/v1/agents/regressions{suffix}"))
+
+    def stage_regression(self, proposal_id: str) -> Dict[str, Any]:
+        """Stage a roll-back proposal: the existing restore, so on a live agent the earlier version becomes the draft and
+        nothing goes live until the agent is deployed. Replaces an existing draft. Calls no model. Raises a 409
+        `PROPOSAL_NOT_OPEN` when the proposal is no longer open. `recorded` is False if the restore worked but the decision
+        could not be saved."""
+        return cast(Dict[str, Any], self._http.post(f"/v1/agents/regressions/{quote(proposal_id, safe='')}/stage", {}))
+
+    def dismiss_regression(self, proposal_id: str, *, reason: Optional[str] = None) -> Dict[str, Any]:
+        """Dismiss a roll-back proposal. It stays hidden while the two versions are unchanged. `reason` is optional, at most
+        500 characters. Changes no agent."""
+        body: Dict[str, Any] = {} if reason is None else {"reason": reason}
+        return cast(Dict[str, Any], self._http.post(f"/v1/agents/regressions/{quote(proposal_id, safe='')}/dismiss", body))
+
+    def regression_decisions(self, *, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Roll-back proposals for agents and workflows that were staged or dismissed, newest first (`resource_type` says which). A staged one carries an `outcome` worked out from
+        runs (`not_deployed`, `measuring`, or `measured` after 20 runs). `limit` is 1 to 200 (default 50)."""
+        suffix = f"?{urlencode({'limit': limit})}" if limit is not None else ""
+        data = cast(Dict[str, Any], self._http.get(f"/v1/agents/regressions/decided{suffix}"))
+        return cast(List[Dict[str, Any]], data["decisions"])
+
+    def snooze_regression(self, proposal_id: str, *, days: int, reason: Optional[str] = None) -> Dict[str, Any]:
+        """Snooze a roll-back proposal for 7, 14 or 30 days. It comes back after that if it still qualifies. Changes nothing
+        else. Returns `decision_id` and `snoozed_until`."""
+        body: Dict[str, Any] = {"days": days}
+        if reason is not None:
+            body["reason"] = reason
+        return cast(Dict[str, Any], self._http.post(f"/v1/agents/regressions/{quote(proposal_id, safe='')}/snooze", body))
+
+    def limit_proposals(self, *, days: Optional[int] = None) -> Dict[str, Any]:
+        """Agents whose live version keeps stopping at its step or tool-call limit, counted from runs. No model is called and
+        nothing is billed. A proposal raises the limit by half. An agent whose stopped runs mostly ended in a loop is not
+        proposed (more room only lets it loop longer): it is in `not_proposed` with the reason, as is one already at the
+        highest limit. Timeouts and cost limits are never proposed. `days` is 7 to 90 (default 30)."""
+        suffix = f"?{urlencode({'days': days})}" if days is not None else ""
+        return cast(Dict[str, Any], self._http.get(f"/v1/agents/limit-proposals{suffix}"))
+
+    def stage_limit_proposal(self, proposal_id: str) -> Dict[str, Any]:
+        """Stage a limit proposal: the raised limit goes into the agent's draft (added to one that exists), and nothing goes
+        live until the agent is deployed. Calls no model. Raises a 409 `PROPOSAL_NOT_OPEN` when it is no longer open."""
+        return cast(Dict[str, Any], self._http.post(f"/v1/agents/limit-proposals/{quote(proposal_id, safe='')}/stage", {}))
+
+    def dismiss_limit_proposal(self, proposal_id: str, *, reason: Optional[str] = None) -> Dict[str, Any]:
+        """Dismiss a limit proposal. It stays hidden while the agent's limit is unchanged. `reason` is optional, at most 500 characters."""
+        body: Dict[str, Any] = {} if reason is None else {"reason": reason}
+        return cast(Dict[str, Any], self._http.post(f"/v1/agents/limit-proposals/{quote(proposal_id, safe='')}/dismiss", body))
+
+    def snooze_limit_proposal(self, proposal_id: str, *, days: int, reason: Optional[str] = None) -> Dict[str, Any]:
+        """Snooze a limit proposal for 7, 14 or 30 days. It comes back after that if it still qualifies."""
+        body: Dict[str, Any] = {"days": days}
+        if reason is not None:
+            body["reason"] = reason
+        return cast(Dict[str, Any], self._http.post(f"/v1/agents/limit-proposals/{quote(proposal_id, safe='')}/snooze", body))
+
     def get(self, agent_key: str) -> Agent:
         data = self._http.get(f"/v1/agents/{quote(agent_key)}")
         return Agent._from_dict(data["agent"])
@@ -199,14 +260,21 @@ class AgentsResource:
         data = self._http.post(f"/v1/agents/{quote(agent_key)}/deploy")
         return Agent._from_dict(data["agent"])
 
-    def run(self, agent_key: str, *, input: Dict[str, Any], session_id: Optional[str] = None) -> Dict[str, Any]:
+    def run(
+        self, agent_key: str, *, input: Dict[str, Any], session_id: Optional[str] = None,
+        access: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """`access={"groups": [...]}` is the end user's retrieval access context (see intents.run)."""
         body: Dict[str, Any] = {"input": input}
         if session_id is not None:
             body["session_id"] = session_id
+        if access is not None:
+            body["access"] = access
         return cast(Dict[str, Any], self._http.post(f"/v1/agents/{quote(agent_key)}/run", body))
 
     def run_stream(
         self, agent_key: str, *, input: Dict[str, Any], session_id: Optional[str] = None,
+        access: Optional[Dict[str, Any]] = None,
     ) -> Iterator[AgentRunStreamEvent]:
         """Same input as run() — real-time step progress instead of one awaited result.
 
@@ -219,6 +287,8 @@ class AgentsResource:
         body: Dict[str, Any] = {"input": input}
         if session_id is not None:
             body["session_id"] = session_id
+        if access is not None:
+            body["access"] = access
         for frame in self._http.stream(f"/v1/agents/{quote(agent_key)}/run/stream", body):
             yield cast(AgentRunStreamEvent, frame)
 

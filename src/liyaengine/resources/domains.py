@@ -336,6 +336,7 @@ class DomainsResource:
         prompt_binding: Optional[PromptBinding] = None,
         retrieval_scope: Optional[str] = None, context_enrichment_webhook_url: Optional[str] = None,
         status: Optional[Literal["draft", "active", "archived"]] = None,
+        retrieval_access: Optional[Literal["off", "enforce"]] = None,
     ) -> Dict[str, int]:
         """Returns {"updated": 1}, not the updated Domain — call get() again for
         the fresh object. Editing system_prompt without also passing
@@ -345,6 +346,7 @@ class DomainsResource:
             "displayName": display_name, "description": description, "icon": icon, "color": color,
             "systemPrompt": system_prompt, "promptBinding": prompt_binding, "retrievalScope": retrieval_scope,
             "contextEnrichmentWebhookUrl": context_enrichment_webhook_url, "status": status,
+            "retrievalAccess": retrieval_access,
         }
         body.update({k: v for k, v in optional.items() if v is not None})
         return cast(Dict[str, int], self._http.patch(f"/v1/domains/{quote(domain_key)}", body))
@@ -353,13 +355,18 @@ class DomainsResource:
         """Soft delete."""
         self._http.delete(f"/v1/domains/{quote(domain_key)}")
 
-    def query(self, domain_key: str, *, query: str, top_k: Optional[int] = None) -> Dict[str, Any]:
+    def query(
+        self, domain_key: str, *, query: str, top_k: Optional[int] = None,
+        access: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """Direct retrieval — runs this domain's knowledge search with no LLM
         call and no intent involved. Useful for testing collection/retrieval-scope
         configuration, or for building your own retrieval-then-generate flow."""
         body: Dict[str, Any] = {"query": query}
         if top_k is not None:
             body["top_k"] = top_k
+        if access is not None:
+            body["access"] = access
         return cast(Dict[str, Any], self._http.post(f"/v1/domains/{quote(domain_key)}/query", body))
 
     def upload_document(self, domain_key: str, source_slug: str, *, file_base64: str, file_name: str) -> Dict[str, Any]:
@@ -403,6 +410,7 @@ class IntentsResource:
         guardrails: Optional[Dict[str, Any]] = None,
         metadata: Optional[Dict[str, Any]] = None,
         preferences: Optional[Dict[str, Any]] = None,
+        access: Optional[Dict[str, Any]] = None,
     ) -> RunIntentResult:
         """Run any intent — built-in pack or custom domain — and get one
         JSON response back. This is the endpoint every other execution path
@@ -418,11 +426,16 @@ class IntentsResource:
         identifies your end user, for example `input={"user_id": "user_001", ...}`.
         A call without it is rejected with INVALID_INPUT. `input["user"]["id"]`
         also works.
+
+        `access={"groups": [...]}` is the end user's retrieval access context: on a
+        domain whose retrieval_access is "enforce", retrieval returns unrestricted
+        documents plus those restricted to one of these groups. Omitted means
+        unrestricted documents only. Set it from your server, never from user input.
         """
         body = _translate_run_input(
             intent=intent, domain=domain, pack=pack, input=input, message=message,
             session_id=session_id, retrieval=retrieval, guardrails=guardrails,
-            metadata=metadata, preferences=preferences,
+            metadata=metadata, preferences=preferences, access=access,
         )
         payload = self._http.post_envelope("/v1/run", body)
         return RunIntentResult._from_dict(payload)
@@ -438,6 +451,7 @@ class IntentsResource:
         session_id: Optional[str] = None,
         retrieval: Optional[Dict[str, Any]] = None,
         guardrails: Optional[Dict[str, Any]] = None,
+        access: Optional[Dict[str, Any]] = None,
     ) -> Iterator[RunStreamEvent]:
         """Same request shape as run(), delivered as a token-by-token stream
         instead of one response — iterate with a for loop.
@@ -458,7 +472,7 @@ class IntentsResource:
         body = _translate_run_input(
             intent=intent, domain=domain, pack=pack, input=input, message=message,
             session_id=session_id, retrieval=retrieval, guardrails=guardrails,
-            metadata=None, preferences=None,
+            metadata=None, preferences=None, access=access,
         )
         for frame in self._http.stream("/v1/run/stream", body):
             yield cast(RunStreamEvent, frame)

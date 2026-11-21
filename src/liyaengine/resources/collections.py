@@ -229,17 +229,24 @@ class CollectionsResource:
         query: str,
         collection_ids: Optional[List[str]] = None,
         top_k: Optional[int] = None,
+        access: Optional[Dict[str, Any]] = None,
     ) -> "QueryCollectionsResult":
         """Direct retrieval — no Domain, Intent, or Agent involved at all.
         Pass collection_ids to search specific collections, or omit it to
         search every general collection the tenant owns. Subject to the
         account's monthly KBaaS query quota, same as a domain's own query().
+
+        `access={"groups": [...]}` restricts results to what that end user may see
+        (unrestricted documents plus those sharing a group). Omit it for no
+        restriction; `{"groups": []}` means unrestricted documents only.
         """
         body: Dict[str, Any] = {"query": query}
         if collection_ids is not None:
             body["collection_ids"] = collection_ids
         if top_k is not None:
             body["top_k"] = top_k
+        if access is not None:
+            body["access"] = access
         data = self._http.post("/v1/collections/query", body)
         return QueryCollectionsResult._from_dict(cast(Dict[str, Any], data))
 

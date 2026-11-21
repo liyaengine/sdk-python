@@ -142,6 +142,40 @@ class WorkflowsResource:
         """
         return cast(Dict[str, Any], self._http.get("/v1/workflows/trigger-catalog"))
 
+    def regressions(self, *, days: Optional[int] = None) -> Dict[str, Any]:
+        """Workflows whose live version fails clearly more often than the version before it, counted from runs. No model is
+        called and nothing is billed. Only runs that completed or failed count. A gap is a lead, never proof. Nothing is
+        applied: `changes` says in words what rolling back would undo. `days` is 7 to 90 (default 30)."""
+        suffix = f"?{urlencode({'days': days})}" if days is not None else ""
+        return cast(Dict[str, Any], self._http.get(f"/v1/workflows/regressions{suffix}"))
+
+    def stage_regression(self, proposal_id: str) -> Dict[str, Any]:
+        """Stage a workflow roll-back: the older version's steps become the workflow's DRAFT (not the live restore), so
+        nothing goes live until the workflow is deployed. Replaces an existing draft. Calls no model. Raises a 409
+        `PROPOSAL_NOT_OPEN` when the proposal is no longer open."""
+        return cast(Dict[str, Any], self._http.post(f"/v1/workflows/regressions/{quote(proposal_id, safe='')}/stage", {}))
+
+    def dismiss_regression(self, proposal_id: str, *, reason: Optional[str] = None) -> Dict[str, Any]:
+        """Dismiss a workflow roll-back proposal. It stays hidden while the two versions are unchanged. `reason` is
+        optional, at most 500 characters. Changes no workflow."""
+        body: Dict[str, Any] = {} if reason is None else {"reason": reason}
+        return cast(Dict[str, Any], self._http.post(f"/v1/workflows/regressions/{quote(proposal_id, safe='')}/dismiss", body))
+
+    def snooze_regression(self, proposal_id: str, *, days: int, reason: Optional[str] = None) -> Dict[str, Any]:
+        """Snooze a workflow roll-back proposal for 7, 14 or 30 days. It comes back after that if it still qualifies.
+        Changes nothing else. Returns `decision_id` and `snoozed_until`."""
+        body: Dict[str, Any] = {"days": days}
+        if reason is not None:
+            body["reason"] = reason
+        return cast(Dict[str, Any], self._http.post(f"/v1/workflows/regressions/{quote(proposal_id, safe='')}/snooze", body))
+
+    def regression_decisions(self, *, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Every roll-back decision, agents and workflows together, newest first (`resource_type` says which).
+        `limit` is 1 to 200 (default 50)."""
+        suffix = f"?{urlencode({'limit': limit})}" if limit is not None else ""
+        data = cast(Dict[str, Any], self._http.get(f"/v1/workflows/regressions/decided{suffix}"))
+        return cast(List[Dict[str, Any]], data["decisions"])
+
     def list(self) -> List[Workflow]:
         data = self._http.get("/v1/workflows")
         return [Workflow._from_dict(w) for w in cast(List[Dict[str, Any]], data)]

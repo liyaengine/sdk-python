@@ -110,6 +110,12 @@ class HttpClient:
     def get(self, path: str) -> Any:
         return self.request("GET", path)
 
+    def get_envelope(self, path: str) -> Dict[str, Any]:
+        """GET returning the parsed body as-is, for the rare read whose envelope
+        carries top-level siblings beyond {success, data} — today GET
+        /v1/traces, whose `pagination` and `sort` sit beside `data`."""
+        return self._request_envelope("GET", path)
+
     def post(self, path: str, json_body: Optional[Dict[str, Any]] = None) -> Any:
         return self.request("POST", path, json_body)
 

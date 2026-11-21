@@ -14,6 +14,10 @@ from .resources.documents import DocumentsResource
 from .resources.files import FilesResource
 from .resources.guardrail_policies import GuardrailPoliciesResource
 from .resources.prompts import PromptsResource
+from .resources.traces import TracesResource
+from .resources.gaps import GapsResource
+from .resources.corrections import CorrectionsResource
+from .resources.memory import MemoryResource
 
 _DEFAULT_BASE_URL = "https://api.liyaengine.ai"
 
@@ -56,6 +60,10 @@ class LiyaEngine:
         self.files = FilesResource(self._http)
         self.guardrail_policies = GuardrailPoliciesResource(self._http)
         self.prompts = PromptsResource(self._http)
+        self.traces = TracesResource(self._http)
+        self.gaps = GapsResource(self._http)
+        self.corrections = CorrectionsResource(self._http)
+        self.memory = MemoryResource(self._http)
 
     def close(self) -> None:
         self._http.close()

@@ -102,12 +102,13 @@ def _translate_run_input(
     guardrails: Optional[Dict[str, Any]],
     metadata: Optional[Dict[str, Any]],
     preferences: Optional[Dict[str, Any]],
+    access: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     body: Dict[str, Any] = {"intent": intent}
     optional = {
         "pack": pack, "domain": domain, "input": input, "message": message,
         "session_id": session_id, "retrieval": retrieval, "guardrails": guardrails,
-        "metadata": metadata, "preferences": preferences,
+        "metadata": metadata, "preferences": preferences, "access": access,
     }
     body.update({k: v for k, v in optional.items() if v is not None})
     return body

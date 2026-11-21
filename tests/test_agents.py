@@ -190,3 +190,64 @@ def test_run_stream_raises_for_pre_flight_rejection(client):
     with pytest.raises(LiyaEngineAPIError) as exc_info:
         list(client.agents.run_stream("support-triage", input={"message": "hi"}))
     assert exc_info.value.code == "AGENT_NOT_ACTIVE"
+
+
+@respx.mock
+def test_regressions_reads_proposals_and_passes_the_window(client):
+    route = respx.get(f"{BASE_URL}/v1/agents/regressions").mock(return_value=httpx.Response(200, json={"success": True, "data": {
+        "window_days": 60, "min_version_runs": 20, "min_gap_points": 10,
+        "regressions": [{"agent_key": "dispute", "gap_points": 17.9, "has_draft": False, "restore": {"method": "POST", "path": "/v1/agents/dispute/versions/3/restore"},
+                         "current": {"version": 4, "failure_rate": 20.8}, "previous": {"version": 3, "failure_rate": 2.9}, "changes": []}],
+    }}))
+    out = client.agents.regressions(days=60)
+    assert route.calls.last.request.url.params["days"] == "60"
+    assert out["regressions"][0]["restore"]["path"] == "/v1/agents/dispute/versions/3/restore"
+    assert out["min_version_runs"] == 20
+    client.agents.regressions()
+    assert route.calls.last.request.url.query == b""
+
+
+@respx.mock
+def test_stage_dismiss_and_list_regression_decisions(client):
+    stage = respx.post(f"{BASE_URL}/v1/agents/regressions/rollback%3Aa1%3A4%3A3/stage").mock(return_value=httpx.Response(200, json={"success": True, "data": {"staged_version": 3, "staged_as_draft": True, "decision_id": "d9", "recorded": True}}))
+    out = client.agents.stage_regression("rollback:a1:4:3")
+    assert out["staged_version"] == 3 and out["recorded"] is True
+    assert json.loads(stage.calls.last.request.content) == {}
+
+    dismiss = respx.post(f"{BASE_URL}/v1/agents/regressions/rollback%3Aa1%3A4%3A3/dismiss").mock(return_value=httpx.Response(200, json={"success": True, "data": {"decision_id": "d10"}}))
+    assert client.agents.dismiss_regression("rollback:a1:4:3", reason="The new tools were wanted")["decision_id"] == "d10"
+    assert json.loads(dismiss.calls.last.request.content) == {"reason": "The new tools were wanted"}
+    client.agents.dismiss_regression("rollback:a1:4:3")
+    assert json.loads(dismiss.calls.last.request.content) == {}
+
+    listing = respx.get(f"{BASE_URL}/v1/agents/regressions/decided").mock(return_value=httpx.Response(200, json={"success": True, "data": {"decisions": [{"decision": "staged", "outcome": {"state": "measured", "failure_rate": 4}}]}}))
+    rows = client.agents.regression_decisions(limit=10)
+    assert listing.calls.last.request.url.params["limit"] == "10"
+    assert rows[0]["outcome"]["state"] == "measured"
+
+
+@respx.mock
+def test_staging_a_closed_proposal_raises_a_typed_error(client):
+    respx.post(f"{BASE_URL}/v1/agents/regressions/rollback%3Agone%3A1%3A0/stage").mock(return_value=httpx.Response(409, json={"success": False, "error": {"code": "PROPOSAL_NOT_OPEN", "message": "closed"}}))
+    with pytest.raises(LiyaEngineAPIError) as e:
+        client.agents.stage_regression("rollback:gone:1:0")
+    assert e.value.code == "PROPOSAL_NOT_OPEN" and e.value.status == 409
+
+
+@respx.mock
+def test_limit_proposals_stage_dismiss_and_snooze(client):
+    listing = respx.get(f"{BASE_URL}/v1/agents/limit-proposals").mock(return_value=httpx.Response(200, json={"success": True, "data": {"window_days": 14, "proposals": [{"id": "limit:a1:steps:20"}], "not_proposed": [{"reason": "looping"}]}}))
+    out = client.agents.limit_proposals(days=14)
+    assert listing.calls.last.request.url.params["days"] == "14" and out["not_proposed"][0]["reason"] == "looping"
+    stage = respx.post(f"{BASE_URL}/v1/agents/limit-proposals/limit%3Aa1%3Asteps%3A20/stage").mock(return_value=httpx.Response(200, json={"success": True, "data": {"staged_as_draft": True}}))
+    assert client.agents.stage_limit_proposal("limit:a1:steps:20")["staged_as_draft"] is True
+    assert json.loads(stage.calls.last.request.content) == {}
+    dismiss = respx.post(f"{BASE_URL}/v1/agents/limit-proposals/limit%3Aa1%3Asteps%3A20/dismiss").mock(return_value=httpx.Response(200, json={"success": True, "data": {"decision_id": "d"}}))
+    client.agents.dismiss_limit_proposal("limit:a1:steps:20", reason="intended")
+    assert json.loads(dismiss.calls.last.request.content) == {"reason": "intended"}
+    snooze = respx.post(f"{BASE_URL}/v1/agents/limit-proposals/limit%3Aa1%3Asteps%3A20/snooze").mock(return_value=httpx.Response(200, json={"success": True, "data": {"snoozed_until": "x"}}))
+    client.agents.snooze_limit_proposal("limit:a1:steps:20", days=14)
+    assert json.loads(snooze.calls.last.request.content) == {"days": 14}
+    rb = respx.post(f"{BASE_URL}/v1/agents/regressions/rollback%3Aa1%3A4%3A3/snooze").mock(return_value=httpx.Response(200, json={"success": True, "data": {}}))
+    client.agents.snooze_regression("rollback:a1:4:3", days=7, reason="later")
+    assert json.loads(rb.calls.last.request.content) == {"days": 7, "reason": "later"}

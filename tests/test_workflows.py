@@ -241,3 +241,37 @@ def test_trigger_catalog(client):
     )
     catalog = client.workflows.trigger_catalog()
     assert catalog["events"][0]["event_type"] == "document.ingested"
+
+
+@respx.mock
+def test_workflow_regressions_read_proposals_and_pass_the_window(client):
+    route = respx.get(f"{BASE_URL}/v1/workflows/regressions").mock(return_value=httpx.Response(200, json={"success": True, "data": {
+        "window_days": 60, "min_version_runs": 20, "min_gap_points": 10,
+        "regressions": [{"id": "rollback:workflow:w1:4:3", "workflow_key": "kyc", "gap_points": 17.9, "has_draft": True,
+                         "current": {"version": 4, "failure_rate": 20.8}, "previous": {"version": 3, "failure_rate": 2.9}, "changes": [{"label": "1 step added"}]}],
+    }}))
+    out = client.workflows.regressions(days=60)
+    assert route.calls.last.request.url.params["days"] == "60"
+    assert out["regressions"][0]["workflow_key"] == "kyc" and out["regressions"][0]["has_draft"] is True
+    client.workflows.regressions()
+    assert route.calls.last.request.url.query == b""
+
+
+@respx.mock
+def test_workflow_regression_stage_dismiss_and_decisions(client):
+    stage = respx.post(f"{BASE_URL}/v1/workflows/regressions/rollback%3Aworkflow%3Aw1%3A4%3A3/stage").mock(return_value=httpx.Response(200, json={"success": True, "data": {"staged_version": 3, "staged_as_draft": True, "decision_id": "d9", "recorded": True}}))
+    assert client.workflows.stage_regression("rollback:workflow:w1:4:3")["staged_as_draft"] is True
+    assert json.loads(stage.calls.last.request.content) == {}
+    dismiss = respx.post(f"{BASE_URL}/v1/workflows/regressions/rollback%3Aworkflow%3Aw1%3A4%3A3/dismiss").mock(return_value=httpx.Response(200, json={"success": True, "data": {"decision_id": "d10"}}))
+    assert client.workflows.dismiss_regression("rollback:workflow:w1:4:3", reason="planned")["decision_id"] == "d10"
+    assert json.loads(dismiss.calls.last.request.content) == {"reason": "planned"}
+    listing = respx.get(f"{BASE_URL}/v1/workflows/regressions/decided").mock(return_value=httpx.Response(200, json={"success": True, "data": {"decisions": [{"id": "d1", "resource_type": "workflow"}]}}))
+    assert client.workflows.regression_decisions(limit=5)[0]["resource_type"] == "workflow"
+    assert listing.calls.last.request.url.params["limit"] == "5"
+
+
+@respx.mock
+def test_workflow_regression_snooze(client):
+    route = respx.post(f"{BASE_URL}/v1/workflows/regressions/rollback%3Aworkflow%3Aw1%3A4%3A3/snooze").mock(return_value=httpx.Response(200, json={"success": True, "data": {"snoozed_until": "x"}}))
+    client.workflows.snooze_regression("rollback:workflow:w1:4:3", days=30)
+    assert json.loads(route.calls.last.request.content) == {"days": 30}

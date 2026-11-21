@@ -2,7 +2,7 @@ import httpx
 import pytest
 import respx
 
-from liyaengine import LiyaEngine
+from liyaengine import LiyaEngine, LiyaEngineAPIError
 
 BASE_URL = "https://api.test.liyaengine.ai"
 
@@ -163,3 +163,40 @@ def test_resolve_flagged_chunk(client):
         return_value=httpx.Response(200, json={"success": True})
     )
     assert client.documents.resolve_flagged_chunk("chunk_1") is None
+
+
+@respx.mock
+def test_get_flagged_chunk_returns_the_passage_and_its_corrections():
+    respx.get(f"{BASE_URL}/v1/documents/flagged-chunks/chunk_1").mock(return_value=httpx.Response(200, json={"success": True, "data": {
+        "chunk": {"id": "chunk_1", "source_type": "document", "source_id": "doc_1", "chunk_index": 2, "content_text": "Refunds within 30 days.",
+                  "document_name": "policy.pdf", "correction_count": 3, "flagged_at": "2026-01-02T00:00:00.000Z"},
+        "corrections": [{"conversation_id": "c1", "question": "Annual plan?", "assistant_reply": "30 days.", "staff_reply": "45 days for annual plans.", "at": "2026-01-02T00:00:00.000Z"}],
+    }}))
+    with LiyaEngine(api_key="liya_test_key", base_url=BASE_URL, max_retries=0) as client:
+        d = client.documents.get_flagged_chunk("chunk_1")
+    assert d.chunk["document_name"] == "policy.pdf" and d.chunk["correction_count"] == 3
+    assert d.corrections[0]["staff_reply"] == "45 days for annual plans."
+
+
+@respx.mock
+def test_draft_flagged_chunk_rewrite_returns_checked_edits():
+    respx.post(f"{BASE_URL}/v1/documents/flagged-chunks/chunk_1/draft-rewrite").mock(return_value=httpx.Response(200, json={"success": True, "data": {"draft": {
+        "chunk_id": "chunk_1", "original": "Refunds within 30 days.", "revised_text": "Refunds within 45 days.",
+        "edits": [{"id": "e0", "before": "Refunds within 30 days.", "after": "Refunds within 45 days.", "sources": ["C1"], "reason": "Staff said 45", "start": 0, "end": 23}],
+        "unclear": [], "dropped_unsupported": 0, "corrections": [], "reason": None, "usage": {"tokens": 900, "cost": 0.01, "served_by": "platform"},
+    }}}))
+    with LiyaEngine(api_key="liya_test_key", base_url=BASE_URL, max_retries=0) as client:
+        d = client.documents.draft_flagged_chunk_rewrite("chunk_1")
+    assert d.revised_text == "Refunds within 45 days." and d.reason is None and d.dropped_unsupported == 0
+    assert d.edits[0]["before"] == "Refunds within 30 days." and d.edits[0]["sources"] == ["C1"]
+
+
+@respx.mock
+def test_draft_flagged_chunk_rewrite_is_never_retried_because_each_attempt_is_a_paid_model_call():
+    route = respx.post(f"{BASE_URL}/v1/documents/flagged-chunks/chunk_1/draft-rewrite").mock(return_value=httpx.Response(502, json={
+        "success": False, "error": {"code": "DRAFT_UNAVAILABLE", "message": "Try again."},
+    }))
+    with LiyaEngine(api_key="liya_test_key", base_url=BASE_URL, max_retries=2) as client:
+        with pytest.raises(LiyaEngineAPIError) as err:
+            client.documents.draft_flagged_chunk_rewrite("chunk_1")
+    assert err.value.code == "DRAFT_UNAVAILABLE" and route.call_count == 1

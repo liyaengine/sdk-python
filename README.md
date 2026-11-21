@@ -2,7 +2,7 @@
 
 Official Python client for the [Liya Engine](https://liyaengine.ai) public API.
 
-> **Status: early access.** This SDK currently covers Domains, Intents, Collections, Documents, Agents, Workflows, Evaluations, direct intent execution, Guardrail Policies, and Prompt Studio. More resources ship incrementally — see [Roadmap](#roadmap).
+> **Status: early access.** This SDK currently covers Domains, Intents, Collections, Documents, Agents, Workflows, Evaluations, direct intent execution, Guardrail Policies, Prompt Studio, and Traces. More resources ship incrementally — see [Roadmap](#roadmap).
 
 ## Install
 
@@ -220,6 +220,28 @@ A chunk that accumulates enough human corrections (a support agent repeatedly ov
 flagged = client.documents.list_flagged_chunks()
 client.documents.resolve_flagged_chunk(flagged[0].id)
 ```
+
+## Access control on retrieval
+
+Restrict a document to groups, and tell each request which groups the end user belongs to. Retrieval then returns unrestricted documents plus the ones the user's groups share, on every path (runs, agents, `collections.query`, `domains.query`).
+
+```python
+# 1. Label documents (leave out for unrestricted; None clears a label).
+client.documents.upload(file_base64=data, file_name="pay-bands.pdf", access_groups=["hr"])
+client.documents.set_access(doc_id, ["hr", "finance"])  # relabel, no re-embedding
+
+# 2. Turn enforcement on for the domain.
+client.domains.update("hr-assistant", retrieval_access="enforce")
+
+# 3. Send the end user's groups from your server (never from user input).
+client.intents.run(
+    domain="hr-assistant", intent="answer",
+    input={"user_id": "emp_42", "message": "What is the L5 band?"},
+    access={"groups": ["hr"]},
+)
+```
+
+On an enforcing domain, a request with no `access` sees unrestricted documents only. `access` is a top-level field and is never part of the prompt. Groups are your own strings (up to 50 per request, 64 characters each).
 
 ## Agents
 
@@ -462,6 +484,42 @@ client.domains.intents.update(
 
 > Editing `prompt_template` directly on a bound intent afterward, without also passing `prompt_binding`, silently detaches the binding — see the Domains & Intents section above.
 
+## Traces
+
+Read-only access to execution traces — the same data and filters as the dashboard's Trace Explorer. Requires a secret API key: a trace holds prompts and responses, so public embed tokens are refused (`EMBED_TOKEN_NOT_ALLOWED`). Comments, bookmarks and replay stay in the dashboard.
+
+```python
+from datetime import datetime, timezone
+
+# Flagged calls in a domain over a window, slowest first.
+page = client.traces.list(
+    domain="support",
+    flagged=True,
+    from_=datetime(2026, 10, 1, tzinfo=timezone.utc),
+    sort="latency",
+    limit=50,
+)
+page.pagination  # {"total": ..., "limit": 50, "offset": 0}
+
+# The full trace for a request. The id is the message_id that run() returned.
+trace = client.traces.get(page.traces[0].trace_id)
+trace.retrieved_context  # every retrieved chunk with its source and similarity score
+trace.observations       # the trace as a tree of steps with timing
+
+# One row per request, agent run or workflow run, with what each run started nested inside.
+client.traces.list(scope="traces", kind="workflow", nested=True)
+
+# An agent or workflow run's steps.
+client.traces.get_run("agent", "run_123")
+
+# Totals over every trace matching the filters, not just a page.
+stats = client.traces.stats(domain="support")  # defaults to the last 30 days
+stats.latency_ms["p95"]
+stats.issues_by_category
+```
+
+Filters: `domain`, `intent`, `flagged`, `issue` (`"safety"`, `"validation"`, `"grounding"`, `"other"`), `from_`, `to`, `user_id`, `session_id`, `model`, `min_latency_ms`, `from_cache`, `capture`, `q`, plus `limit`, `offset`, `sort` and `order`. Traces are retained for the period your plan includes.
+
 ## Error handling
 
 Every failed request raises `LiyaEngineAPIError`, carrying the API's `code`, `message`, and HTTP `status`:
@@ -503,6 +561,7 @@ LiyaEngine(
 - [x] Domain agentic tool configuration (previously dashboard-only)
 - [x] Guardrail Policies (full CRUD, attach/detach, live test console, versioning, analytics — previously dashboard-only)
 - [x] Flagged-chunk review (read/resolve — the corrections that cause a flag are dashboard-only, product-internal logic)
+- [x] Traces (list/filter, get one, agent and workflow run traces, statistics — read-only; comments, bookmarks and replay stay dashboard-only)
 - [x] Prompt Studio (list/get/create + versioning + publish — AI-authoring stays dashboard-only)
 - [ ] Async client
 
