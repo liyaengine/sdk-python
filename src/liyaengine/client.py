@@ -17,6 +17,7 @@ from .resources.prompts import PromptsResource
 from .resources.traces import TracesResource
 from .resources.gaps import GapsResource
 from .resources.corrections import CorrectionsResource
+from .resources.healing import HealingResource
 from .resources.memory import MemoryResource
 
 _DEFAULT_BASE_URL = "https://api.liyaengine.ai"
@@ -63,6 +64,7 @@ class LiyaEngine:
         self.traces = TracesResource(self._http)
         self.gaps = GapsResource(self._http)
         self.corrections = CorrectionsResource(self._http)
+        self.healing = HealingResource(self._http)
         self.memory = MemoryResource(self._http)
 
     def close(self) -> None:

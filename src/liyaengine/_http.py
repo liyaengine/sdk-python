@@ -122,6 +122,9 @@ class HttpClient:
     def patch(self, path: str, json_body: Optional[Dict[str, Any]] = None) -> Any:
         return self.request("PATCH", path, json_body)
 
+    def put(self, path: str, json_body: Optional[Dict[str, Any]] = None) -> Any:
+        return self.request("PUT", path, json_body)
+
     def delete(self, path: str) -> Any:
         return self.request("DELETE", path)
 
